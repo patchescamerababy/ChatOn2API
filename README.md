@@ -2,105 +2,62 @@
 
 由👇分析而来
 
-	https://play.google.com/store/apps/details?id=ai.chat.gpt.bot
+  <a href="https://play.google.com/store/apps/details?id=ai.chat.gpt.bot">ChatOn</a>
 
 
-本项目是一个类 OpenAI 服务端程序，向接入OpenAI、Anthropic的某个API发送请求，然后模拟OpenAI API标准的响应
-
-由于是第三方接入的API，最终返回内容由他们所决定，是否降智需自行判断
+本项目是一个类 OpenAI 服务端程序，向API发送请求，然后模拟OpenAI API标准的响应
 
 可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
 
-Demo👇有限试用、需要提供任意authorization，均支持联网。如果传入的model不正确自动回落至gpt-4o
+### 不提供Bearer算法
 
-对话：支持上传图片。已手动屏蔽在此路径的画图请求，因为他们返回的URL本质不可访问的，需要由服务端提取路径、替换URL再下载
-
-	https://api-chaton.pages.dev/v1/chat/completions
- 
-示例
-
- 	curl --request POST 'https://api-chaton.pages.dev/v1/chat/completions' \
- 	--header 'Content-Type: application/json' \
- 	--header "Authorization: Bearer 123" \
- 	--data '{"top_p":1,"stream":false,"temperature":0,"messages":[{"role":"user","content":"hello"}],"model":"gpt-4o"}'
-  
-画图：仅为gpt-4o/gpt-4o-mini
-
- 	https://api-chaton.pages.dev/v1/images/generations
-
-  
-
-示例（这里model、style字段无意义，仅为占位）
-
-	curl --request POST 'https://api-chaton.pages.dev/v1/images/generations' \
-	--header 'Content-Type: application/json' \
-	--header "Authorization: Bearer 123" \
-	--data '{"prompt":"girl","response_format":"b64_json","model":"gpt-4o","style":"vivid"}'
- 
-或者
-
- 	curl --request POST 'https://api-chaton.pages.dev/v1/images/generations' \
-	--header 'Content-Type: application/json' \
-	--header "Authorization: Bearer 123" \
-	--data '{"prompt": "girl", "model": "gpt-4o", "n": 1, "size": "1024x1024"}'
-
-由于有CF盾，请求频繁会有429
-
-支持的模型
+#### 支持的模型
 
 gpt-4o✅
 
 gpt-4o-mini✅
 
-claude 3.5 sonnet✅(claude-3-5-sonnet) (又可以使用了)
+claude-3-5-sonnet✅
 
-claude Haiku✅(claude)
+claude Haiku✅
 
-几乎无限使用，几乎没有频率限制，他们的API对max_tokens不作判断要求，推测在8000左右。 适合有高频请求的需求
-
-本项目未做Authorization验证
+deekseek-r1✅
 
 支持的功能
 
-Completions: （均可联网搜索）
+Completions: （可联网搜索）
 
 	/v1/chat/completions
 
 
-TextToImage:（仅限于 gpt-4o 和 gpt-4o-mini 模型可画图，目前固定为gpt-4o）
+TextToImage:（仅限 gpt-4o 和 gpt-4o-mini 模型可画图）
 
 	/v1/images/generations
 
-ImageToText：可传直链，如果传base64编码的图片需要部署在公网
+ImageToText：可传直链，如果传base64编码的图片服务需要部署在公网
 
 Usage:
 
-	--port 
-
-指定的端口，默认80
-
+	--port # 指定的端口，默认80
  	--base_url
+ 
+测试示例
 
-OpenAI标准中有两种格式，Base64编码和URL直链，对于后者，本项目会直接将URL发送出去，对于前者则必须将本程序部署在服务器上
+ 	curl --request POST 'http://127.0.0.1:8080/v1/chat/completions' \
+ 	--header 'Content-Type: application/json' \
+ 	--header "Authorization: Bearer 123" \
+ 	--data '{"top_p":1,"stream":false,"temperature":0,"messages":[{"role":"user","content":"hello"}],"model":"gpt-4o"}'
+  
+画图示例
 
-这是传图需要的URL，为http或https开头的url，不以/结尾，确保这个url能被外部访问，必须可被访问，否则会报错
+	curl --request POST 'http://127.0.0.1:8080/v1/images/generations' \
+	--header 'Content-Type: application/json' \
+	--header "Authorization: Bearer 123" \
+	--data '{"prompt":"girl","response_format":"b64_json","model":"gpt-4o","style":"vivid"}'
+ 
+或
 
-例如:
-
-python3 main.py --port 80 --base_url https://example.com
-
-java -jar 80 https://example.com
-
-程序会自动在base_url后添加/images/+随机图片名
-
-程序自带简易http访问功能，默认将接收到的Base64图片在程序所在路径的images下，会自动清理1分钟前的图片，也可用nginx搭建http程序
-
-例如会上传https://api-chaton.pages.dev/images/[uuid].png，则填入的base_url为https://api-chaton.pages.dev
-
-Bearer核心算法可联系📧patches.camera_0m@icloud.com获取
-
-个人使用可通过Java JNI调用以下DLL
-
-	https://api-chaton.pages.dev/bearer_token_generator.dll
-
-在src/utils/BearerTokenGeneratorNative.java中调用
+ 	curl --request POST 'http://127.0.0.1:8080/v1/images/generations' \
+	--header 'Content-Type: application/json' \
+	--header "Authorization: Bearer 123" \
+	--data '{"prompt": "girl", "model": "gpt-4o", "n": 1, "size": "1024x1024"}'
