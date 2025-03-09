@@ -16,7 +16,7 @@ jobs:
     - name: Set up GraalVM
       uses: graalvm/setup-graalvm@v1
       with:
-        version: '23.1.2'  # 与pom.xml中版本匹配
+        version: '17'
         java-version: '17'
         components: 'native-image'
         github-token: ${{ secrets.GITHUB_TOKEN }}
