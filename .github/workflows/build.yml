@@ -188,38 +188,28 @@ jobs:
     - name: Prepare and compress release assets
       run: |
         mkdir -p release
+        mkdir -p temp
         
-        # Debug: List all downloaded artifacts
         echo "Contents of artifacts directory:"
         ls -R artifacts/
         
         # Process each artifact directory
-        for artifact_dir in artifacts/*; do
-          if [ -d "$artifact_dir" ]; then
-            base_name=$(basename "$artifact_dir")
-            echo "Processing artifact: $base_name"
+        for dir in artifacts/*; do
+          if [ -d "$dir" ]; then
+            artifact_name=$(basename "$dir")
+            echo "Processing artifact: $artifact_name"
             
-            # Create temporary directory for this artifact
-            mkdir -p "temp/$base_name"
-            cp -r "$artifact_dir"/* "temp/$base_name/"
-            
-            cd "temp/$base_name"
-            
-            # Check if directory contains exe files
-            if ls *.exe 1> /dev/null 2>&1; then
-              echo "Compressing Windows executable with 7z"
-              7z a "../../../release/$base_name.7z" ./*
-            # Check if directory contains jar files
-            elif ls *.jar 1> /dev/null 2>&1; then
-              echo "Moving JAR file directly"
-              cp ./* "../../../release/"
-            # Handle other binary files
+            # Check for file types and process accordingly
+            if [ -f "$dir"/*.exe ]; then
+              echo "Processing Windows executable"
+              7z a "release/${artifact_name}.7z" "$dir"/*
+            elif [ -f "$dir"/*.jar ]; then
+              echo "Processing JAR file"
+              cp "$dir"/*.jar release/
             else
-              echo "Compressing with tar.xz"
-              tar -cf - ./* | xz -9 -T0 > "../../../release/$base_name.tar.xz"
+              echo "Processing binary file"
+              tar -czf "release/${artifact_name}.tar.xz" -C "$dir" .
             fi
-            
-            cd ../../..
           fi
         done
         
