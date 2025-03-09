@@ -50,7 +50,7 @@ jobs:
       shell: bash
       run: |
         echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
-        echo "build_id=${{ github.run_number }}" >> $GITHUB_OUTPUT
+        echo "build_id=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
     - name: Setup GraalVM
       uses: graalvm/setup-graalvm@v1
@@ -165,9 +165,14 @@ jobs:
       id: release_info
       run: |
         echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
-        echo "build_id=${{ github.run_number }}" >> $GITHUB_OUTPUT
+        echo "build_id=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
         VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
         echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Install compression tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y p7zip-full xz-utils tar
 
     - name: Download all artifacts
       uses: actions/download-artifact@v4
@@ -175,31 +180,49 @@ jobs:
         path: artifacts
         merge-multiple: true
 
-    - name: Prepare release assets
+    - name: Prepare and compress release assets
       run: |
         mkdir -p release
-        # Copy all artifacts to release directory with date-based names
-        find artifacts -type f -exec cp {} release/ \;
-        cd release
-        # Rename files to include date and build ID
+        mkdir -p temp
+        
+        # Copy and organize files
+        for dir in artifacts/*; do
+          if [ -d "$dir" ]; then
+            cp "$dir"/* temp/
+          fi
+        done
+        
+        cd temp
+        
+        # Process each file
         for file in *; do
-          if [[ -f "$file" ]]; then
-            # Skip if file already has the date pattern
-            if [[ ! "$file" =~ ^ChatOn.*-${{ steps.release_info.outputs.date }}-${{ steps.release_info.outputs.build_id }} ]]; then
-              ext=""
-              if [[ "$file" == *.exe ]]; then
-                ext=".exe"
-              fi
-              if [[ "$file" == *.jar ]]; then
-                ext=".jar"
-              fi
-              # Extract base name (remove extension if exists)
-              base=$(basename "$file" "$ext")
-              mv "$file" "ChatOn-${{ steps.release_info.outputs.date }}-${{ steps.release_info.outputs.build_id }}-${base}${ext}"
+          if [ -f "$file" ]; then
+            # Get base name without extension
+            filename=$(basename "$file")
+            extension="${filename##*.}"
+            basename="${filename%.*}"
+            
+            # Create directory for the file
+            mkdir -p "$basename"
+            mv "$file" "$basename/"
+            
+            # Process based on file type
+            if [ "$extension" = "exe" ]; then
+              # 7z compression for Windows exe
+              7z a "../release/${basename}.7z" "$basename"/*
+            elif [ "$extension" = "jar" ]; then
+              # Move jar files directly to release
+              mv "$basename"/* "../release/"
+            else
+              # tar.xz compression for other binaries
+              tar -cf - "$basename" | xz -9 -T0 > "../release/${basename}.tar.xz"
             fi
           fi
         done
+        
+        cd ../release
         ls -la
+        cd ..
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
