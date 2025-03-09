@@ -2,75 +2,131 @@ name: Build and Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+permissions:
+  contents: write
+  packages: write
 
 jobs:
   build:
-    runs-on: windows-latest
-    permissions:
-      contents: write
-      
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+            label: linux-amd64
+            static: true
+          - os: ubuntu-latest
+            arch: arm64
+            label: linux-arm64
+            static: true
+          - os: windows-latest
+            arch: amd64
+            label: windows-amd64
+            static: true
+          - os: macos-latest
+            arch: amd64
+            label: macos-amd64
+            static: false
+          - os: macos-14
+            arch: arm64
+            label: macos-arm64
+            static: false
+
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up GraalVM
+    - uses: actions/checkout@v4
+
+    - name: Setup GraalVM
       uses: graalvm/setup-graalvm@v1
       with:
-        distribution: 'graalvm'  # 使用Oracle GraalVM
-        java-version: '21'       # 使用最新的稳定版本
-        components: 'native-image'
+        java-version: '21'
+        distribution: 'graalvm'
         github-token: ${{ secrets.GITHUB_TOKEN }}
-        
+        native-image-job-reports: 'true'
+        architecture: ${{ matrix.arch }}
+
     - name: Build with Maven
-      run: mvn -B package --file pom.xml
-        
-    - name: Prepare for Native Image
+      run: mvn -B clean package --file pom.xml
+
+    - name: Upload JAR Artifacts
+      if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
+      uses: actions/upload-artifact@v4
+      with:
+        name: jar-files
+        path: target/*-jar-with-dependencies.jar
+        retention-days: 5
+
+    - name: Build Native Image (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: cmd
+      run: |
+        mkdir target\native-image
+        copy target\ChatOn-*-jar-with-dependencies.jar target\native-image\ChatOn.jar
+        xcopy /E /I /Y src\main\java\config-dir target\native-image\config-dir
+        cd target\native-image
+        native-image.cmd ^
+        -H:ConfigurationFileDirectories=./config-dir ^
+        -H:+AddAllCharsets ^
+        -jar ChatOn.jar ^
+        -H:Name=ChatOn-${{ matrix.label }} ^
+        --enable-https ^
+        --enable-http ^
+        --static ^
+        --no-fallback ^
+        --initialize-at-run-time ^
+        --initialize-at-run-time=ModelsHandler ^
+        --initialize-at-build-time=Main ^
+        --initialize-at-build-time=CompletionHandler ^
+        --initialize-at-build-time=utils.BearerTokenGenerator
+
+    - name: Build Native Image (Linux/MacOS)
+      if: matrix.os != 'windows-latest'
+      shell: bash
       run: |
         mkdir -p target/native-image
-        copy target\ChatOn-*-jar-with-dependencies.jar target\native-image\ChatOn.jar
-        xcopy /E /I src\main\java\config-dir target\native-image\config-dir
-      shell: cmd
-
-    - name: Build Native Image
-      run: |
+        cp target/*-jar-with-dependencies.jar target/native-image/ChatOn.jar
+        cp -r src/main/java/config-dir target/native-image/
         cd target/native-image
-        native-image.cmd -J-Xmx8G -H:ConfigurationFileDirectories=./config-dir -H:+AddAllCharsets -jar ChatOn.jar --enable-https --enable-http --static --no-fallback --initialize-at-run-time --initialize-at-run-time=ModelsHandler --initialize-at-build-time=Main --initialize-at-build-time=CompletionHandler --initialize-at-build-time=utils.BearerTokenGenerator
-      shell: cmd
-        
+        native-image \
+          -H:ConfigurationFileDirectories=./config-dir \
+          -H:+AddAllCharsets \
+          -jar ChatOn.jar \
+          -H:Name=ChatOn-${{ matrix.label }} \
+          --enable-https \
+          --enable-http \
+          ${{ matrix.static == true && '--static' || '' }} \
+          --no-fallback \
+          --initialize-at-run-time \
+          --initialize-at-run-time=ModelsHandler \
+          --initialize-at-build-time=Main \
+          --initialize-at-build-time=CompletionHandler \
+          --initialize-at-build-time=utils.BearerTokenGenerator
+
+    - name: Upload Native Build
+      uses: actions/upload-artifact@v4
+      with:
+        name: chaton-${{ matrix.label }}
+        path: target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        retention-days: 5
+
     - name: Get version
+      if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
       id: get_version
       run: |
-        FOR /F "tokens=*" %%i IN ('mvn help:evaluate -Dexpression^=project.version -q -DforceStdout') DO SET VERSION=%%i
-        echo version=%VERSION% >> %GITHUB_OUTPUT%
-      shell: cmd
-
-    - name: Check if tag exists
-      id: check_tag
-      uses: mukunku/tag-exists-action@v1.2.0
-      with: 
-        tag: ${{ steps.get_version.outputs.version }}
-
-    - name: Create Tag
-      if: steps.check_tag.outputs.exists == 'false'
-      uses: actions/github-script@v6
-      with:
-        script: |
-          github.rest.git.createRef({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            ref: `refs/tags/${process.env.VERSION}`,
-            sha: context.sha
-          })
-      env:
-        VERSION: ${{ steps.get_version.outputs.version }}
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
 
     - name: Create Release
-      if: steps.check_tag.outputs.exists == 'false'
+      if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          target/ChatOn-*-jar-with-dependencies.jar
-          target/native-image/chaton.exe
+          target/*-jar-with-dependencies.jar
+          target/native-image/ChatOn-*
         tag_name: ${{ steps.get_version.outputs.version }}
         name: Release ${{ steps.get_version.outputs.version }}
         draft: false
