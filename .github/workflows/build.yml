@@ -2,12 +2,31 @@ name: Build and Release
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
+    paths:
+      - 'src/**'
+      - 'go/**'
+      - 'rust/**'
+      - 'pom.xml'
+      - '.github/workflows/**'
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
+    paths:
+      - 'src/**'
+      - 'go/**'
+      - 'rust/**'
+      - 'pom.xml'
+      - '.github/workflows/**'
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  java-build:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -35,7 +54,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
-    
+
     - name: Setup GraalVM
       uses: graalvm/setup-graalvm@v1
       with:
@@ -46,14 +65,25 @@ jobs:
         architecture: ${{ matrix.arch }}
 
     - name: Build with Maven
-      working-directory: java
       run: |
+        # Add the Maven Assembly Plugin to the build to avoid the "No plugin found for prefix 'assembly'" error
         mvn -B clean package org.apache.maven.plugins:maven-assembly-plugin:3.6.0:single --file pom.xml
+
+    - name: Upload JAR Artifacts
+      if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
+      uses: actions/upload-artifact@v4
+      with:
+        name: jar-files
+        path: |
+          target/*[^s].jar
+          target/*-with-dependencies.jar
+          target/*-sources.jar
+          target/*-javadoc.jar
+        retention-days: 5
 
     - name: Build Native Image (Windows)
       if: matrix.os == 'windows-latest'
       shell: cmd
-      working-directory: java
       run: |
         mkdir target\native-image
         copy target\ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar target\native-image\ChatOn.jar
@@ -62,44 +92,31 @@ jobs:
         -H:ConfigurationFileDirectories=..\..\config-dir ^
         -H:+AddAllCharsets ^
         -jar ChatOn.jar ^
-        -H:Name=ChatOn-${{ matrix.label }} ^
+        -H:Name=Java-ChatOn-${{ matrix.label }} ^
         --enable-https ^
         --enable-http ^
-        --static ^
-        --no-fallback 
+        --static 
 
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
       shell: bash
-      working-directory: java
       run: |
         mkdir -p target/native-image
         cp target/*-with-dependencies.jar target/native-image/ChatOn.jar
         cd target/native-image
         native-image \
-          -H:ConfigurationFileDirectories=../../config-dir \
+        -H:ConfigurationFileDirectories=..\..\config-dir \
           -H:+AddAllCharsets \
           -jar ChatOn.jar \
-          -H:Name=ChatOn-${{ matrix.label }} \
+          -H:Name=Java-ChatOn-${{ matrix.label }} \
           --enable-https \
           --enable-http \
           ${{ matrix.static == true && '--static' || '' }} \
           --no-fallback 
-          
-    - name: Upload artifact
+
+    - name: Upload Native Build
       uses: actions/upload-artifact@v4
       with:
-        name: ChatOn-${{ matrix.label }}
-        path: java/target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        name: java-${{ matrix.label }}
+        path: target/native-image/Java-ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
         retention-days: 5
-
-    - name: Create Release
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-      uses: softprops/action-gh-release@v1
-      with:
-        files: java/target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
-        tag_name: v${{ github.run_number }}
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
