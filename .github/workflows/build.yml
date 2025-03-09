@@ -20,22 +20,27 @@ jobs:
             arch: amd64
             label: linux-amd64
             static: true
+            artifact_name: ChatOn-Linux-x86_64
           - os: ubuntu-latest
             arch: arm64
             label: linux-arm64
             static: true
+            artifact_name: ChatOn-Linux-arm64
           - os: windows-latest
             arch: amd64
             label: windows-amd64
             static: true
+            artifact_name: ChatOn-Windows-x86_64
           - os: macos-latest
             arch: amd64
             label: macos-amd64
             static: false
+            artifact_name: ChatOn-macOS-x86_64
           - os: macos-14
             arch: arm64
             label: macos-arm64
             static: false
+            artifact_name: ChatOn-macOS-arm64
 
     steps:
     - uses: actions/checkout@v4
@@ -53,9 +58,10 @@ jobs:
       run: mvn -B clean package --file pom.xml
 
     - name: Upload JAR Artifacts
+      if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
       uses: actions/upload-artifact@v4
       with:
-        name: jar-files
+        name: ChatOn-jar
         path: target/*-jar-with-dependencies.jar
         retention-days: 5
 
@@ -88,7 +94,7 @@ jobs:
         -H:ConfigurationFileDirectories=config-dir ^
         -H:+AddAllCharsets ^
         -jar ChatOn.jar ^
-        -H:Name=ChatOn-windows-amd64 ^
+        -H:Name=${{ matrix.artifact_name }} ^
         --enable-https ^
         --enable-http ^
         --static ^
@@ -112,7 +118,7 @@ jobs:
           -H:ConfigurationFileDirectories=./config-dir \
           -H:+AddAllCharsets \
           -jar ChatOn.jar \
-          -H:Name=ChatOn-${{ matrix.label }} \
+          -H:Name=${{ matrix.artifact_name }} \
           --enable-https \
           --enable-http \
           ${{ matrix.static == true && '--static' || '' }} \
@@ -123,12 +129,21 @@ jobs:
           --initialize-at-build-time=Main \
           --initialize-at-build-time=CompletionHandler
 
-    - name: Upload Native Build
+    - name: Upload Native Build (Windows)
+      if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: chaton-${{ matrix.label }}
-        path: |
-          target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        name: ${{ matrix.artifact_name }}-exe
+        path: target/native-image/${{ matrix.artifact_name }}.exe
+        retention-days: 5
+        if-no-files-found: error
+
+    - name: Upload Native Build (Linux/MacOS)
+      if: matrix.os != 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}-bin
+        path: target/native-image/${{ matrix.artifact_name }}
         retention-days: 5
         if-no-files-found: error
 
@@ -154,8 +169,21 @@ jobs:
     - name: Prepare release assets
       run: |
         mkdir -p release
-        cp artifacts/jar-files/* release/
-        cp artifacts/chaton-*/* release/
+        # Copy and rename JAR files
+        if [ -d "artifacts/ChatOn-jar" ]; then
+          cp artifacts/ChatOn-jar/* release/
+        fi
+        # Copy and rename binary files
+        for platform in Linux-x86_64 Linux-aarch64 macOS-x86_64 macOS-aarch64; do
+          if [ -f "artifacts/ChatOn-${platform}-bin/ChatOn-${platform}" ]; then
+            cp "artifacts/ChatOn-${platform}-bin/ChatOn-${platform}" "release/ChatOn-${platform}"
+            chmod +x "release/ChatOn-${platform}"
+          fi
+        done
+        # Copy Windows executable
+        if [ -f "artifacts/ChatOn-Windows-x86_64-exe/ChatOn-Windows-x86_64.exe" ]; then
+          cp "artifacts/ChatOn-Windows-x86_64-exe/ChatOn-Windows-x86_64.exe" "release/"
+        fi
         ls -la release/
 
     - name: Create Release
