@@ -6,7 +6,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest  # 使用Windows因为命令是.cmd格式
+    runs-on: windows-latest
     permissions:
       contents: write
       
@@ -16,8 +16,8 @@ jobs:
     - name: Set up GraalVM
       uses: graalvm/setup-graalvm@v1
       with:
-        version: '17'
-        java-version: '17'
+        distribution: 'graalvm'  # 使用Oracle GraalVM
+        java-version: '21'       # 使用最新的稳定版本
         components: 'native-image'
         github-token: ${{ secrets.GITHUB_TOKEN }}
         
@@ -34,7 +34,7 @@ jobs:
     - name: Build Native Image
       run: |
         cd target/native-image
-        native-image.cmd -H:ConfigurationFileDirectories=./config-dir -H:+AddAllCharsets -jar ChatOn.jar --enable-https --enable-http --static --no-fallback --initialize-at-run-time --initialize-at-run-time=ModelsHandler --initialize-at-build-time=Main --initialize-at-build-time=CompletionHandler --initialize-at-build-time=utils.BearerTokenGenerator
+        native-image.cmd -J-Xmx8G -H:ConfigurationFileDirectories=./config-dir -H:+AddAllCharsets -jar ChatOn.jar --enable-https --enable-http --static --no-fallback --initialize-at-run-time --initialize-at-run-time=ModelsHandler --initialize-at-build-time=Main --initialize-at-build-time=CompletionHandler --initialize-at-build-time=utils.BearerTokenGenerator
       shell: cmd
         
     - name: Get version
@@ -70,11 +70,10 @@ jobs:
       with:
         files: |
           target/ChatOn-*-jar-with-dependencies.jar
-          target/native-image/chaton
+          target/native-image/chaton.exe
         tag_name: ${{ steps.get_version.outputs.version }}
         name: Release ${{ steps.get_version.outputs.version }}
         draft: false
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
