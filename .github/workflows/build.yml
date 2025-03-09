@@ -11,7 +11,7 @@ jobs:
     steps:
     - uses: actions/checkout@v3
       with:
-        token: ${{ secrets.PAT }}
+        token: ${{ secrets.GITHUB_TOKEN }}
         fetch-depth: 0
     
     - name: Set up JDK 17
@@ -24,11 +24,6 @@ jobs:
     - name: Build with Maven
       run: mvn -B package --file pom.xml
         
-    - name: Configure Git
-      run: |
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
-        git config --global user.name "github-actions[bot]"
-        
     - name: Check if tag exists and create if not
       id: check_tag
       run: |
@@ -36,15 +31,17 @@ jobs:
         echo "version=$VERSION" >> $GITHUB_OUTPUT
         if ! git ls-remote --tags origin | grep -q "refs/tags/$VERSION"; then
           echo "Creating new tag $VERSION"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
           git tag $VERSION
-          git push origin $VERSION
+          git push https://${GITHUB_ACTOR}:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git $VERSION
           echo "tag_exists=false" >> $GITHUB_OUTPUT
         else
           echo "Tag $VERSION already exists"
           echo "tag_exists=true" >> $GITHUB_OUTPUT
         fi
       env:
-        GITHUB_TOKEN: ${{ secrets.PAT }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Create Release
       if: steps.check_tag.outputs.tag_exists == 'false'
@@ -56,4 +53,4 @@ jobs:
         draft: false
         prerelease: false
       env:
-        GITHUB_TOKEN: ${{ secrets.PAT }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
