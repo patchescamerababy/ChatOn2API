@@ -10,9 +10,6 @@ permissions:
   contents: write
   packages: write
 
-env:
-  CARGO_TERM_COLOR: always
-
 jobs:
   java-build:
     runs-on: ${{ matrix.os }}
@@ -51,11 +48,11 @@ jobs:
         github-token: ${{ secrets.GITHUB_TOKEN }}
         native-image-job-reports: 'true'
         architecture: ${{ matrix.arch }}
+        components: 'native-image'
 
     - name: Build with Maven
-      working-directory: java
       run: |
-        mvn -B clean package org.apache.maven.plugins:maven-assembly-plugin:3.6.0:single --file pom.xml
+        mvn -B clean package --file pom.xml
 
     - name: Upload JAR Artifacts
       if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
@@ -63,50 +60,67 @@ jobs:
       with:
         name: jar-files
         path: |
-          java/target/*[^s].jar
-          java/target/*-with-dependencies.jar
-          java/target/*-sources.jar
-          java/target/*-javadoc.jar
+          target/*[^s].jar
+          target/*-with-dependencies.jar
         retention-days: 5
+
+    - name: Create Native Image Config Dir
+      run: |
+        mkdir -p config-dir
+        echo '[]' > config-dir/reflect-config.json
+        echo '[]' > config-dir/proxy-config.json
+        echo '[]' > config-dir/resource-config.json
 
     - name: Build Native Image (Windows)
       if: matrix.os == 'windows-latest'
       shell: cmd
-      working-directory: java
       run: |
         mkdir target\native-image
         copy target\ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar target\native-image\ChatOn.jar
         cd target\native-image
         native-image.cmd ^
-        -H:ConfigurationFileDirectories=.\config-dir ^
+        -H:ConfigurationFileDirectories=..\..\config-dir ^
         -H:+AddAllCharsets ^
+        -H:+ReportExceptionStackTraces ^
         -jar ChatOn.jar ^
-        -H:Name=Java-ChatOn-${{ matrix.label }} ^
+        -H:Name=ChatOn-${{ matrix.label }} ^
         --enable-https ^
         --enable-http ^
-        --static 
+        --static ^
+        --no-fallback ^
+        --main-class=Main
 
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
       shell: bash
-      working-directory: java
       run: |
         mkdir -p target/native-image
         cp target/*-with-dependencies.jar target/native-image/ChatOn.jar
         cd target/native-image
         native-image \
-        -H:ConfigurationFileDirectories=./config-dir \
+        -H:ConfigurationFileDirectories=../../config-dir \
         -H:+AddAllCharsets \
+        -H:+ReportExceptionStackTraces \
         -jar ChatOn.jar \
-        -H:Name=Java-ChatOn-${{ matrix.label }} \
+        -H:Name=ChatOn-${{ matrix.label }} \
         --enable-https \
         --enable-http \
         ${{ matrix.static == true && '--static' || '' }} \
-        --no-fallback
+        --no-fallback \
+        --main-class=Main
 
     - name: Upload Native Build
       uses: actions/upload-artifact@v4
       with:
-        name: java-${{ matrix.label }}
-        path: java/target/native-image/Java-ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        name: ChatOn-${{ matrix.label }}
+        path: target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
         retention-days: 5
+
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: |
+          target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
