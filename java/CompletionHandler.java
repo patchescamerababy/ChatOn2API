@@ -121,8 +121,7 @@ public class CompletionHandler implements HttpHandler {
                                             String dataUrl = imageUrlObj.getString("url");
                                             if (dataUrl.startsWith("data:image/")) {
                                                 // 处理 Base64 编码的图片：解码后通过 HTTP 上传到 storage 服务
-//                                                String base64Data = dataUrl.substring(dataUrl.indexOf("base64,") + 7);
-                                                imageURL = utils.OkHttpImageUploader.uploadImageBackup(dataUrl);
+                                                imageURL = utils.UtilsOkHttp.uploadImage(dataUrl);
 
                                                 hasImage = true;
                                                 messageHasImage = true;
@@ -195,19 +194,19 @@ public class CompletionHandler implements HttpHandler {
                         String userContent = "";
                         String url = "";
 
-//                        if (role.equals("user") && message.has("content")) {
-//                            userContent = message.optString("content", "");
-//                            if (userContent.contains("http://") || userContent.contains("https://")) {
-//                                Pattern pattern = Pattern.compile("https?://[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+(?=$|\\s)");
-//                                Matcher matcher = pattern.matcher(userContent);
-//                                if (matcher.find()) {
-//                                    url = matcher.group();
-//                                    System.out.println("URL: " + url);
-//
-//                                    message.put("content", userContent + "\n\n" + utils.utils.fetchURL(url));
-//                                }
-//                            }
-//                        }
+                        if (role.equals("user") && message.has("content")) {
+                            userContent = message.optString("content", "");
+                            if (userContent.contains("http://") || userContent.contains("https://")) {
+                                Pattern pattern = Pattern.compile("https?://[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+(?=$|\\s)");
+                                Matcher matcher = pattern.matcher(userContent);
+                                if (matcher.find()) {
+                                    url = matcher.group();
+                                    System.out.println("URL: " + url);
+
+                                    message.put("content", userContent + "\n\n" + utils.utils.fetchURL(url));
+                                }
+                            }
+                        }
 
                         // 将处理后的消息添加到新数组中
                         processedMessages.put(message);
