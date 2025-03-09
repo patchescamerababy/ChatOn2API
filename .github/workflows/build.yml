@@ -6,28 +6,43 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest  # 使用Windows因为命令是.cmd格式
     permissions:
       contents: write
       
     steps:
     - uses: actions/checkout@v3
     
-    - name: Set up JDK 17
-      uses: actions/setup-java@v3
+    - name: Set up GraalVM
+      uses: graalvm/setup-graalvm@v1
       with:
+        version: '23.1.2'  # 与pom.xml中版本匹配
         java-version: '17'
-        distribution: 'temurin'
-        cache: maven
+        components: 'native-image'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
         
     - name: Build with Maven
       run: mvn -B package --file pom.xml
         
+    - name: Prepare for Native Image
+      run: |
+        mkdir -p target/native-image
+        copy target\ChatOn-*-jar-with-dependencies.jar target\native-image\ChatOn.jar
+        xcopy /E /I src\main\java\config-dir target\native-image\config-dir
+      shell: cmd
+
+    - name: Build Native Image
+      run: |
+        cd target/native-image
+        native-image.cmd -H:ConfigurationFileDirectories=./config-dir -H:+AddAllCharsets -jar ChatOn.jar --enable-https --enable-http --static --no-fallback --initialize-at-run-time --initialize-at-run-time=ModelsHandler --initialize-at-build-time=Main --initialize-at-build-time=CompletionHandler --initialize-at-build-time=utils.BearerTokenGenerator
+      shell: cmd
+        
     - name: Get version
       id: get_version
       run: |
-        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        FOR /F "tokens=*" %%i IN ('mvn help:evaluate -Dexpression^=project.version -q -DforceStdout') DO SET VERSION=%%i
+        echo version=%VERSION% >> %GITHUB_OUTPUT%
+      shell: cmd
 
     - name: Check if tag exists
       id: check_tag
@@ -53,10 +68,13 @@ jobs:
       if: steps.check_tag.outputs.exists == 'false'
       uses: softprops/action-gh-release@v1
       with:
-        files: target/ChatOn-*-jar-with-dependencies.jar
+        files: |
+          target/ChatOn-*-jar-with-dependencies.jar
+          target/native-image/chaton
         tag_name: ${{ steps.get_version.outputs.version }}
         name: Release ${{ steps.get_version.outputs.version }}
         draft: false
         prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
