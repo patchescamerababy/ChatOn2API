@@ -161,6 +161,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
     
+    - name: Setup Maven
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    
     - name: Generate release info
       id: release_info
       run: |
@@ -174,55 +180,51 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y p7zip-full xz-utils tar
 
-    - name: Download all artifacts
+    - name: Download artifacts
       uses: actions/download-artifact@v4
       with:
         path: artifacts
-        merge-multiple: true
 
     - name: Prepare and compress release assets
       run: |
         mkdir -p release
-        mkdir -p temp
         
-        # Copy and organize files
-        for dir in artifacts/*; do
-          if [ -d "$dir" ]; then
-            cp "$dir"/* temp/
-          fi
-        done
+        # Debug: List all downloaded artifacts
+        echo "Contents of artifacts directory:"
+        ls -R artifacts/
         
-        cd temp
-        
-        # Process each file
-        for file in *; do
-          if [ -f "$file" ]; then
-            # Get base name without extension
-            filename=$(basename "$file")
-            extension="${filename##*.}"
-            basename="${filename%.*}"
+        # Process each artifact directory
+        for artifact_dir in artifacts/*; do
+          if [ -d "$artifact_dir" ]; then
+            base_name=$(basename "$artifact_dir")
+            echo "Processing artifact: $base_name"
             
-            # Create directory for the file
-            mkdir -p "$basename"
-            mv "$file" "$basename/"
+            # Create temporary directory for this artifact
+            mkdir -p "temp/$base_name"
+            cp -r "$artifact_dir"/* "temp/$base_name/"
             
-            # Process based on file type
-            if [ "$extension" = "exe" ]; then
-              # 7z compression for Windows exe
-              7z a "../release/${basename}.7z" "$basename"/*
-            elif [ "$extension" = "jar" ]; then
-              # Move jar files directly to release
-              mv "$basename"/* "../release/"
+            cd "temp/$base_name"
+            
+            # Check if directory contains exe files
+            if ls *.exe 1> /dev/null 2>&1; then
+              echo "Compressing Windows executable with 7z"
+              7z a "../../../release/$base_name.7z" ./*
+            # Check if directory contains jar files
+            elif ls *.jar 1> /dev/null 2>&1; then
+              echo "Moving JAR file directly"
+              cp ./* "../../../release/"
+            # Handle other binary files
             else
-              # tar.xz compression for other binaries
-              tar -cf - "$basename" | xz -9 -T0 > "../release/${basename}.tar.xz"
+              echo "Compressing with tar.xz"
+              tar -cf - ./* | xz -9 -T0 > "../../../release/$base_name.tar.xz"
             fi
+            
+            cd ../../..
           fi
         done
         
-        cd ../release
-        ls -la
-        cd ..
+        echo "Final release contents:"
+        ls -la release/
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
@@ -232,5 +234,6 @@ jobs:
         name: Release ${{ steps.release_info.outputs.version }} (${{ steps.release_info.outputs.date }}-${{ steps.release_info.outputs.build_id }})
         draft: false
         prerelease: false
+        generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
