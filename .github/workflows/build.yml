@@ -108,7 +108,7 @@ jobs:
         --initialize-at-run-time=ModelsHandler ^
         --initialize-at-build-time=Main ^
         --initialize-at-build-time=CompletionHandler ^
-        --initialize-at-build-time=utils.BearerTokenGenerator
+        --initialize-at-run-time=utils.BearerTokenGenerator
         
         echo "Native image build completed"
         
