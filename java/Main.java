@@ -62,9 +62,6 @@ public class Main {
                 }
             }
         }
-             OutputStream os = System.out;  // 获取 System.out
-        System.out.println("当前控制台编码方式为GBK");
-
         try {
             OutputStream os = System.out;  // 获取 System.out 的 OutputStream
             PrintStream ps = new PrintStream(os, true, "GBK");
