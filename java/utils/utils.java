@@ -24,10 +24,6 @@ import java.util.zip.GZIPInputStream;
 import static utils.BearerTokenGenerator.GetBearer;
 
 public class utils {
-    static {
-        System.setProperty("jdk.httpclient.allowRestrictedHeaders", "true");
-
-    }
     /**
      * 获取格式化的当前 UTC 日期，格式为 yyyy-MM-dd'T'HH:mm:ss'Z'
      *
