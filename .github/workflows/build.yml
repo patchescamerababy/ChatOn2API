@@ -84,7 +84,8 @@ jobs:
         -H:Name=Java-ChatOn-${{ matrix.label }} ^
         --enable-https ^
         --enable-http ^
-        --static 
+        --static ^
+        --main-class=Main
 
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
@@ -102,7 +103,8 @@ jobs:
           --enable-https \
           --enable-http \
           ${{ matrix.static == true && '--static' || '' }} \
-          --no-fallback 
+          --no-fallback \
+          --main-class=Main
 
     - name: Upload Native Build
       uses: actions/upload-artifact@v4
