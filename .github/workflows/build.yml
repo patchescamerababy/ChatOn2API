@@ -84,8 +84,7 @@ jobs:
         -H:Name=Java-ChatOn-${{ matrix.label }} ^
         --enable-https ^
         --enable-http ^
-        --static ^
-        --main-class=Main
+        --static 
 
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
@@ -97,14 +96,13 @@ jobs:
         cd target/native-image
         native-image \
         -H:ConfigurationFileDirectories=../../config-dir \
-          -H:+AddAllCharsets \
-          -jar ChatOn.jar \
-          -H:Name=Java-ChatOn-${{ matrix.label }} \
-          --enable-https \
-          --enable-http \
-          ${{ matrix.static == true && '--static' || '' }} \
-          --no-fallback \
-          --main-class=Main
+        -H:+AddAllCharsets \
+        -jar ChatOn.jar \
+        -H:Name=Java-ChatOn-${{ matrix.label }} \
+        --enable-https \
+        --enable-http \
+        ${{ matrix.static == true && '--static' || '' }} \
+        --no-fallback
 
     - name: Upload Native Build
       uses: actions/upload-artifact@v4
