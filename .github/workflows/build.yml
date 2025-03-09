@@ -25,8 +25,8 @@ jobs:
     
     - name: Create Maven structure and copy files
       run: |
-        mkdir -p java/src/main/java
-        cp *.java java/src/main/java/
+        mkdir -p java/src/main/
+        cp -p ./java/ java/src/main/java/
         
     - name: List files in source directory
       run: |
