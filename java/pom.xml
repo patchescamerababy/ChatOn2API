@@ -37,7 +37,6 @@
             <artifactId>okhttp</artifactId>
             <version>4.12.0</version>
         </dependency>
-        <!-- Add GraalVM SDK dependency -->
         <dependency>
             <groupId>org.graalvm.sdk</groupId>
             <artifactId>graal-sdk</artifactId>
@@ -47,6 +46,7 @@
     </dependencies>
 
     <build>
+        <sourceDirectory>${project.basedir}/src/main/java</sourceDirectory>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
