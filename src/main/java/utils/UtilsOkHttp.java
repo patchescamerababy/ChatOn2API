@@ -4,7 +4,10 @@ import okhttp3.*;
 import org.json.JSONObject;
 
 import javax.net.ssl.*;
+import java.io.BufferedReader;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.net.InetSocketAddress;
 import java.net.Proxy;
 import java.net.SocketAddress;
@@ -12,10 +15,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
 import java.text.SimpleDateFormat;
+import java.util.Base64;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
 import java.util.concurrent.TimeUnit;
+import java.util.zip.GZIPInputStream;
 
 public class UtilsOkHttp {
 
@@ -94,32 +99,7 @@ public class UtilsOkHttp {
         System.out.println("date = " + date);
         return date;
     }
-
     /**
-     * 构建 OkHttp 请求，并设置必要的请求头，包括 "Connection: Keep-Alive"
-     *
-     * @param modifiedRequestBody 请求体
-     * @param UA                  用户端版本号
-     * @return 构建好的 Request 对象
-     */
-    public static Request buildRequest(byte[] modifiedRequestBody, String UA) {
-        String date = getFormattedDate();
-        String tmpToken = BearerTokenGenerator.GetBearer(modifiedRequestBody, "/chats/stream", date, "POST");
-        return new Request.Builder()
-                .url("https://api.chaton.ai/chats/stream")
-                .addHeader("Date", date)
-                .addHeader("Client-time-zone", "-05:00")
-                .addHeader("Authorization", tmpToken)
-                .addHeader("User-Agent", "ChatOn_Android/" + UA)
-                .addHeader("Accept-Language", "en-US")
-                .addHeader("X-Cl-Options", "hb")
-                .addHeader("Content-Type", "application/json; charset=UTF-8")
-                .addHeader("Accept-Encoding", "gzip")
-                .addHeader("Connection", "Keep-Alive")
-                .post(RequestBody.create(modifiedRequestBody, MediaType.get("application/json; charset=utf-8")))
-                .build();
-    }
-        /**
      * 备用方法：解析 Base64 图片数据后调用 chaton.ai 接口上传图片。
      * 此方法使用 BearerTokenGenerator、UtilsOkHttp 工具生成请求头及签名，
      * 并解析返回 JSON 中的 getUrl 字段作为图片访问地址。
@@ -215,5 +195,29 @@ public class UtilsOkHttp {
             // 返回 JSON 中的 getUrl 字段作为图片访问 URL
             return jsonResponse.getString("getUrl");
         }
+    }
+    /**
+     * 构建 OkHttp 请求，并设置必要的请求头，包括 "Connection: Keep-Alive"
+     *
+     * @param modifiedRequestBody 请求体
+     * @param UA                  用户端版本号
+     * @return 构建好的 Request 对象
+     */
+    public static Request buildRequest(byte[] modifiedRequestBody, String UA) {
+        String date = getFormattedDate();
+        String tmpToken = BearerTokenGenerator.GetBearer(modifiedRequestBody, "/chats/stream", date, "POST");
+        return new Request.Builder()
+                .url("https://api.chaton.ai/chats/stream")
+                .addHeader("Date", date)
+                .addHeader("Client-time-zone", "-05:00")
+                .addHeader("Authorization", tmpToken)
+                .addHeader("User-Agent", "ChatOn_Android/" + UA)
+                .addHeader("Accept-Language", "en-US")
+                .addHeader("X-Cl-Options", "hb")
+                .addHeader("Content-Type", "application/json; charset=UTF-8")
+                .addHeader("Accept-Encoding", "gzip")
+                .addHeader("Connection", "Keep-Alive")
+                .post(RequestBody.create(modifiedRequestBody, MediaType.get("application/json; charset=utf-8")))
+                .build();
     }
 }
