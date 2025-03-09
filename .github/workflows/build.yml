@@ -78,7 +78,7 @@ jobs:
         copy target\ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar target\native-image\ChatOn.jar
         cd target\native-image
         native-image.cmd ^
-        -H:ConfigurationFileDirectories=..\..\config-dir ^
+        -H:ConfigurationFileDirectories=.\config-dir ^
         -H:+AddAllCharsets ^
         -jar ChatOn.jar ^
         -H:Name=Java-ChatOn-${{ matrix.label }} ^
@@ -95,7 +95,7 @@ jobs:
         cp target/*-with-dependencies.jar target/native-image/ChatOn.jar
         cd target/native-image
         native-image \
-        -H:ConfigurationFileDirectories=../../config-dir \
+        -H:ConfigurationFileDirectories=./config-dir \
         -H:+AddAllCharsets \
         -jar ChatOn.jar \
         -H:Name=Java-ChatOn-${{ matrix.label }} \
