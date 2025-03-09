@@ -8,43 +8,30 @@ on:
 
 jobs:
   build:
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
           - os: ubuntu-latest
-            arch: x64
-            graalvm_arch: amd64
-            static_flag: --static
-          - os: macos-latest
-            arch: x64
-            graalvm_arch: amd64
-            static_flag: ''
-          - os: macos-latest
-            arch: aarch64
-            graalvm_arch: aarch64
-            static_flag: ''
+            arch: amd64
+            label: linux-amd64
+            static: true
           - os: windows-latest
-            arch: x64
-            graalvm_arch: amd64
-            static_flag: --static
-
-    runs-on: ${{ matrix.os }}
+            arch: amd64
+            label: windows-amd64
+            static: true
+          - os: macos-latest
+            arch: amd64
+            label: macos-amd64
+            static: false
+          - os: macos-14
+            arch: arm64
+            label: macos-arm64
+            static: false
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
     
-    - name: Set up JDK
-      uses: actions/setup-java@v3
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: maven
-
-    - name: Build with Maven
-      run: |
-        cd java
-        mvn clean package -DskipTests
-
     - name: Setup GraalVM
       uses: graalvm/setup-graalvm@v1
       with:
@@ -52,73 +39,68 @@ jobs:
         distribution: 'graalvm'
         github-token: ${{ secrets.GITHUB_TOKEN }}
         native-image-job-reports: 'true'
-        architecture: ${{ matrix.graalvm_arch }}
+        architecture: ${{ matrix.arch }}
 
-    - name: Install Native Image
-      if: runner.os == 'Windows'
+    - name: Build with Maven
       run: |
-        gu.cmd install native-image
-
-    - name: Install Native Image (Unix)
-      if: runner.os != 'Windows'
-      run: |
-        gu install native-image
+        mvn -B clean package org.apache.maven.plugins:maven-assembly-plugin:3.6.0:single --file pom.xml
 
     - name: Build Native Image (Windows)
-      if: runner.os == 'Windows'
-      working-directory: java
+      if: matrix.os == 'windows-latest'
+      shell: cmd
       run: |
-        native-image.cmd -H:ConfigurationFileDirectories=./config-dir `
-          -H:+AddAllCharsets `
-          -jar target/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar `
-          -H:Name=ChatOn `
-          -H:Class=com.your.package.Main `
-          --enable-https `
-          --enable-http `
-          ${{ matrix.static_flag }} `
-          --no-fallback `
-          --initialize-at-run-time `
-          --initialize-at-run-time=ModelsHandler `
-          --initialize-at-build-time=com.your.package.Main `
-          --initialize-at-build-time=CompletionHandler `
-          --initialize-at-build-time=utils.BearerTokenGenerator
+        mkdir target\native-image
+        copy target\ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar target\native-image\ChatOn.jar
+        cd target\native-image
+        native-image.cmd ^
+        -H:ConfigurationFileDirectories=..\..\config-dir ^
+        -H:+AddAllCharsets ^
+        -jar ChatOn.jar ^
+        -H:Name=ChatOn-${{ matrix.label }} ^
+        --enable-https ^
+        --enable-http ^
+        --static ^
+        --no-fallback ^
+        --initialize-at-run-time ^
+        --initialize-at-run-time=ModelsHandler ^
+        --initialize-at-build-time=Main ^
+        --initialize-at-build-time=CompletionHandler ^
+        --initialize-at-build-time=utils.BearerTokenGenerator
 
-    - name: Build Native Image (Unix)
-      if: runner.os != 'Windows'
-      working-directory: java
+    - name: Build Native Image (Linux/MacOS)
+      if: matrix.os != 'windows-latest'
+      shell: bash
       run: |
-        native-image -H:ConfigurationFileDirectories=./config-dir \
+        mkdir -p target/native-image
+        cp target/*-with-dependencies.jar target/native-image/ChatOn.jar
+        cd target/native-image
+        native-image \
+          -H:ConfigurationFileDirectories=../../config-dir \
           -H:+AddAllCharsets \
-          -jar target/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar \
-          -H:Name=ChatOn \
-          -H:Class=com.your.package.Main \
+          -jar ChatOn.jar \
+          -H:Name=ChatOn-${{ matrix.label }} \
           --enable-https \
           --enable-http \
-          ${{ matrix.static_flag }} \
+          ${{ matrix.static == true && '--static' || '' }} \
           --no-fallback \
           --initialize-at-run-time \
           --initialize-at-run-time=ModelsHandler \
-          --initialize-at-build-time=com.your.package.Main \
+          --initialize-at-build-time=Main \
           --initialize-at-build-time=CompletionHandler \
           --initialize-at-build-time=utils.BearerTokenGenerator
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ChatOn-native-${{ runner.os }}-${{ matrix.arch }}
-        path: |
-          java/*.exe
-          java/*.dll
-          java/ChatOn
+        name: ChatOn-${{ matrix.label }}
+        path: target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        retention-days: 5
 
     - name: Create Release
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          java/*.exe
-          java/*.dll
-          java/ChatOn
+        files: target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
         tag_name: v${{ github.run_number }}
         draft: false
         prerelease: false
