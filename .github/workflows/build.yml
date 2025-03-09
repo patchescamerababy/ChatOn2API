@@ -16,6 +16,10 @@ jobs:
             arch: amd64
             label: linux-amd64
             static: true
+          - os: ubuntu-latest
+            arch: arm64
+            label: linux-arm64
+            static: true
           - os: windows-latest
             arch: amd64
             label: windows-amd64
@@ -42,12 +46,14 @@ jobs:
         architecture: ${{ matrix.arch }}
 
     - name: Build with Maven
+      working-directory: java
       run: |
         mvn -B clean package org.apache.maven.plugins:maven-assembly-plugin:3.6.0:single --file pom.xml
 
     - name: Build Native Image (Windows)
       if: matrix.os == 'windows-latest'
       shell: cmd
+      working-directory: java
       run: |
         mkdir target\native-image
         copy target\ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar target\native-image\ChatOn.jar
@@ -70,6 +76,7 @@ jobs:
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
       shell: bash
+      working-directory: java
       run: |
         mkdir -p target/native-image
         cp target/*-with-dependencies.jar target/native-image/ChatOn.jar
@@ -93,14 +100,14 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: ChatOn-${{ matrix.label }}
-        path: target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        path: java/target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
         retention-days: 5
 
     - name: Create Release
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: softprops/action-gh-release@v1
       with:
-        files: target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        files: java/target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
         tag_name: v${{ github.run_number }}
         draft: false
         prerelease: false
