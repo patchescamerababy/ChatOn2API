@@ -119,4 +119,101 @@ public class UtilsOkHttp {
                 .post(RequestBody.create(modifiedRequestBody, MediaType.get("application/json; charset=utf-8")))
                 .build();
     }
+        /**
+     * 备用方法：解析 Base64 图片数据后调用 chaton.ai 接口上传图片。
+     * 此方法使用 BearerTokenGenerator、UtilsOkHttp 工具生成请求头及签名，
+     * 并解析返回 JSON 中的 getUrl 字段作为图片访问地址。
+     *
+     * @param dataUrl Base64 图片数据字符串
+     * @return 上传成功后返回的图片 URL
+     * @throws IOException 网络或解析异常时抛出
+     */
+    public static String uploadImage(String dataUrl) throws IOException {
+        // 解析 Base64 数据并解码
+        String base64Data = dataUrl.substring(dataUrl.indexOf("base64,") + 7);
+        byte[] imageBytes = Base64.getDecoder().decode(base64Data);
+
+        // 判断图片格式，确定扩展名
+        String extension = "jpg"; // 默认扩展名
+        if (dataUrl.startsWith("data:image/png")) {
+            extension = "png";
+            System.out.println("base64为png");
+        } else if (dataUrl.startsWith("data:image/jpeg") || dataUrl.startsWith("data:image/jpg")) {
+            extension = "jpg";
+            System.out.println("base64为jpg");
+        } else if (dataUrl.startsWith("data:image/gif")) {
+            extension = "gif";
+        } else if (dataUrl.startsWith("data:image/webp")) {
+            extension = "webp";
+        }
+
+        // 生成 filename 为当前时间戳，例如 "1740205782603.jpg"
+        String filename = System.currentTimeMillis() + "." + extension;
+
+        // 获取当前格式化日期，例如 "2025-02-22T06:29:51Z"
+        String formattedDate = UtilsOkHttp.getFormattedDate();
+        // 生成用于上传图片的 Bearer Token，假设 bodyContent 为空字符串以保持签名与 Python 版一致
+        // 注意：生成的 token 已包含 "Bearer " 前缀
+        String uploadBearerToken = BearerTokenGenerator.GetBearer(new byte[0], "/storage/upload", formattedDate, "POST");
+
+        // 如果扩展名为 "jpg"，Content-Type 必须设置为 "image/jpeg"
+        String contentType = extension.equals("jpg") ? "jpeg" : extension;
+
+        // 构建 multipart/form-data 请求体
+        MultipartBody requestBody = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("file", filename,
+                        RequestBody.create(imageBytes, MediaType.parse("image/" + contentType)))
+                .build();
+
+        // 构建上传图片的 HTTP 请求
+        Request request = new Request.Builder()
+                .url("https://api.chaton.ai/storage/upload")
+                .header("Date", formattedDate)
+                .header("Client-time-zone", "-05:00")
+                .header("Authorization", uploadBearerToken)
+                .header("User-Agent", BearerTokenGenerator.UA)
+                .header("Accept-language", "en-US")
+                .header("X-Cl-Options", "hb")
+                .header("Content-Type", requestBody.contentType().toString())
+                .header("Accept-Encoding", "gzip")
+                .post(requestBody)
+                .build();
+
+        // 发送请求并解析响应
+        try (Response response = okHttpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("备用上传失败，状态码: " + response.code());
+            }
+
+            String responseBody;
+            ResponseBody body = response.body();
+            if (body == null) {
+                throw new IOException("备用上传响应体为空");
+            }
+            String contentEncoding = response.header("Content-Encoding", "");
+            if ("gzip".equalsIgnoreCase(contentEncoding)) {
+                // 处理 gzip 压缩的响应
+                try (GZIPInputStream gzipIn = new GZIPInputStream(new ByteArrayInputStream(body.bytes()));
+                     InputStreamReader isr = new InputStreamReader(gzipIn, StandardCharsets.UTF_8);
+                     BufferedReader br = new BufferedReader(isr)) {
+                    StringBuilder sb = new StringBuilder();
+                    String line;
+                    while ((line = br.readLine()) != null) {
+                        sb.append(line);
+                    }
+                    responseBody = sb.toString();
+                }
+            } else {
+                responseBody = body.string();
+            }
+
+            JSONObject jsonResponse = new JSONObject(responseBody);
+            if (!jsonResponse.has("getUrl")) {
+                throw new IOException("备用上传响应中缺少 getUrl 字段");
+            }
+            // 返回 JSON 中的 getUrl 字段作为图片访问 URL
+            return jsonResponse.getString("getUrl");
+        }
+    }
 }
