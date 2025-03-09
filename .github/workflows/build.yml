@@ -2,21 +2,9 @@ name: Build and Release
 
 on:
   push:
-    branches: [ "main" ]
-    paths:
-      - 'src/**'
-      - 'go/**'
-      - 'rust/**'
-      - 'pom.xml'
-      - '.github/workflows/**'
+    branches: [ main ]
   pull_request:
-    branches: [ "main" ]
-    paths:
-      - 'src/**'
-      - 'go/**'
-      - 'rust/**'
-      - 'pom.xml'
-      - '.github/workflows/**'
+    branches: [ main ]
 
 permissions:
   contents: write
@@ -65,8 +53,8 @@ jobs:
         architecture: ${{ matrix.arch }}
 
     - name: Build with Maven
+      working-directory: java
       run: |
-        # Add the Maven Assembly Plugin to the build to avoid the "No plugin found for prefix 'assembly'" error
         mvn -B clean package org.apache.maven.plugins:maven-assembly-plugin:3.6.0:single --file pom.xml
 
     - name: Upload JAR Artifacts
@@ -75,15 +63,16 @@ jobs:
       with:
         name: jar-files
         path: |
-          target/*[^s].jar
-          target/*-with-dependencies.jar
-          target/*-sources.jar
-          target/*-javadoc.jar
+          java/target/*[^s].jar
+          java/target/*-with-dependencies.jar
+          java/target/*-sources.jar
+          java/target/*-javadoc.jar
         retention-days: 5
 
     - name: Build Native Image (Windows)
       if: matrix.os == 'windows-latest'
       shell: cmd
+      working-directory: java
       run: |
         mkdir target\native-image
         copy target\ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar target\native-image\ChatOn.jar
@@ -100,12 +89,13 @@ jobs:
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
       shell: bash
+      working-directory: java
       run: |
         mkdir -p target/native-image
         cp target/*-with-dependencies.jar target/native-image/ChatOn.jar
         cd target/native-image
         native-image \
-        -H:ConfigurationFileDirectories=..\..\config-dir \
+        -H:ConfigurationFileDirectories=../../config-dir \
           -H:+AddAllCharsets \
           -jar ChatOn.jar \
           -H:Name=Java-ChatOn-${{ matrix.label }} \
@@ -118,5 +108,5 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: java-${{ matrix.label }}
-        path: target/native-image/Java-ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        path: java/target/native-image/Java-ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
         retention-days: 5
