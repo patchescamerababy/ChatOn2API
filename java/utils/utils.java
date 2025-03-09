@@ -105,6 +105,7 @@ public class utils {
                             }
 
                             try {
+                                System.out.println("Detected system proxy: " + proxyServer);
                                 return parseProxyFromString(proxyServer);
                             } catch (Exception e) {
                                 System.err.println("Failed to parse registry proxy settings: " + e.getMessage());
@@ -123,6 +124,7 @@ public class utils {
                     String proxyUrl = System.getenv(envVar);
                     if (proxyUrl != null && !proxyUrl.isEmpty()) {
                         try {
+                            System.out.println("Detected system proxy: " + proxyUrl);
                             return parseProxyFromString(proxyUrl);
                         } catch (Exception e) {
                             System.err.println("Failed to parse " + envVar + ": " + e.getMessage());
@@ -135,7 +137,6 @@ public class utils {
         } catch (Exception e) {
             System.err.println("Error while getting system proxy: " + e.getMessage());
         }
-        System.out.println("No system proxy found, using direct connection.");
         return proxy;
     }
 
