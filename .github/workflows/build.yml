@@ -25,8 +25,9 @@ jobs:
     
     - name: Create Maven structure and copy files
       run: |
-        mkdir -p java/src/main/
-        cp -p ./java/ java/src/main/java/
+        working-directory: ./java
+        mkdir -p src/main/java
+        cp -p ./* ./src/main/java/
         
     - name: List files in source directory
       run: |
@@ -34,7 +35,6 @@ jobs:
         ls -la java/src/main/java/
         
     - name: Build with Maven
-      working-directory: ./java
       run: mvn -B clean package
         
     - name: Generate version
