@@ -8,7 +8,34 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        arch: [x64, aarch64]
+        exclude:
+          - os: windows-latest
+            arch: aarch64
+          - os: ubuntu-latest
+            arch: aarch64
+        include:
+          - os: ubuntu-latest
+            arch: x64
+            graalvm_arch: amd64
+            static_flag: --static
+          - os: macos-latest
+            arch: x64
+            graalvm_arch: amd64
+            static_flag: ''
+          - os: macos-latest
+            arch: aarch64
+            graalvm_arch: aarch64
+            static_flag: ''
+          - os: windows-latest
+            arch: x64
+            graalvm_arch: amd64
+            static_flag: --static
+
+    runs-on: ${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v3
@@ -16,7 +43,7 @@ jobs:
     - name: Set up JDK
       uses: actions/setup-java@v3
       with:
-        java-version: '8'
+        java-version: '17'
         distribution: 'temurin'
         cache: maven
 
@@ -32,12 +59,20 @@ jobs:
         distribution: 'graalvm'
         github-token: ${{ secrets.GITHUB_TOKEN }}
         native-image-job-reports: 'true'
+        architecture: ${{ matrix.graalvm_arch }}
 
     - name: Install Native Image
+      if: runner.os == 'Windows'
       run: |
         gu.cmd install native-image
 
-    - name: Build Native Image
+    - name: Install Native Image (Unix)
+      if: runner.os != 'Windows'
+      run: |
+        gu install native-image
+
+    - name: Build Native Image (Windows)
+      if: runner.os == 'Windows'
       working-directory: java
       run: |
         native-image.cmd -H:ConfigurationFileDirectories=./config-dir `
@@ -45,7 +80,7 @@ jobs:
           -jar target/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar `
           --enable-https `
           --enable-http `
-          --static `
+          ${{ matrix.static_flag }} `
           --no-fallback `
           --initialize-at-run-time `
           --initialize-at-run-time=ModelsHandler `
@@ -53,13 +88,32 @@ jobs:
           --initialize-at-build-time=CompletionHandler `
           --initialize-at-build-time=utils.BearerTokenGenerator
 
+    - name: Build Native Image (Unix)
+      if: runner.os != 'Windows'
+      working-directory: java
+      run: |
+        native-image -H:ConfigurationFileDirectories=./config-dir \
+          -H:+AddAllCharsets \
+          -jar target/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar \
+          --enable-https \
+          --enable-http \
+          ${{ matrix.static_flag }} \
+          --no-fallback \
+          --initialize-at-run-time \
+          --initialize-at-run-time=ModelsHandler \
+          --initialize-at-build-time=Main \
+          --initialize-at-build-time=CompletionHandler \
+          --initialize-at-build-time=utils.BearerTokenGenerator
+
     - name: Upload artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
-        name: ChatOn-native
+        name: ChatOn-native-${{ runner.os }}-${{ matrix.arch }}
         path: |
           java/*.exe
           java/*.dll
+          java/ChatOn-1.0-SNAPSHOT-jar-with-dependencies
+          java/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.dylib
 
     - name: Create Release
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -68,6 +122,8 @@ jobs:
         files: |
           java/*.exe
           java/*.dll
+          java/ChatOn-1.0-SNAPSHOT-jar-with-dependencies
+          java/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.dylib
         tag_name: v${{ github.run_number }}
         draft: false
         prerelease: false
