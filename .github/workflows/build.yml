@@ -106,7 +106,7 @@ jobs:
           --initialize-at-build-time=utils.BearerTokenGenerator
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ChatOn-native-${{ runner.os }}-${{ matrix.arch }}
         path: |
