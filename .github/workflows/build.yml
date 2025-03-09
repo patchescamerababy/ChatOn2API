@@ -56,7 +56,7 @@ jobs:
       if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
       uses: actions/upload-artifact@v4
       with:
-        name: jar-files
+        name: jar-files-${{ github.run_id }}
         path: target/*-jar-with-dependencies.jar
         retention-days: 5
 
@@ -67,17 +67,11 @@ jobs:
         echo "Creating native-image directory..."
         if not exist "target\native-image" mkdir "target\native-image"
         
-        echo "Listing source JAR file..."
-        dir "target\ChatOn-*-jar-with-dependencies.jar"
-        
         echo "Copying JAR file..."
         for /f "delims=" %%i in ('dir /b "target\ChatOn-*-jar-with-dependencies.jar"') do (
           echo "Found JAR: %%i"
           copy /b "target\%%i" "target\native-image\ChatOn.jar"
         )
-        
-        echo "Verifying copied JAR..."
-        dir "target\native-image\ChatOn.jar"
         
         echo "Copying config directory..."
         if exist "src\main\java\config-dir" (
@@ -87,11 +81,7 @@ jobs:
           exit 1
         )
         
-        echo "Starting native-image build..."
         cd "target\native-image"
-        
-        echo "Verifying current directory contents..."
-        dir
         
         echo "Running native-image command..."
         native-image.cmd ^
@@ -106,23 +96,9 @@ jobs:
         --no-fallback ^
         --initialize-at-run-time ^
         --initialize-at-run-time=ModelsHandler ^
+        --initialize-at-run-time=utils.BearerTokenGenerator ^
         --initialize-at-build-time=Main ^
-        --initialize-at-build-time=CompletionHandler ^
-        --initialize-at-run-time=utils.BearerTokenGenerator
-        
-        echo "Native image build completed"
-        
-        echo "Verifying output..."
-        dir ChatOn-windows-amd64.exe
-
-    - name: Upload Native Build (Windows)
-      if: matrix.os == 'windows-latest'
-      uses: actions/upload-artifact@v4
-      with:
-        name: chaton-${{ matrix.label }}
-        path: target/native-image/ChatOn-${{ matrix.label }}.exe
-        retention-days: 5
-
+        --initialize-at-build-time=CompletionHandler
 
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
@@ -133,6 +109,7 @@ jobs:
         cp -r src/main/java/config-dir target/native-image/
         cd target/native-image
         native-image \
+          -J-Xmx8G \
           -H:ConfigurationFileDirectories=./config-dir \
           -H:+AddAllCharsets \
           -jar ChatOn.jar \
@@ -143,16 +120,27 @@ jobs:
           --no-fallback \
           --initialize-at-run-time \
           --initialize-at-run-time=ModelsHandler \
+          --initialize-at-run-time=utils.BearerTokenGenerator \
           --initialize-at-build-time=Main \
-          --initialize-at-build-time=CompletionHandler \
-          --initialize-at-run-time=utils.BearerTokenGenerator
+          --initialize-at-build-time=CompletionHandler
 
-    - name: Upload Native Build
+    - name: Upload Native Build (Windows)
+      if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v4
       with:
-        name: chaton-${{ matrix.label }}
-        path: target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+        name: chaton-${{ matrix.label }}-${{ github.run_id }}
+        path: target/native-image/ChatOn-${{ matrix.label }}.exe
         retention-days: 5
+        if-no-files-found: error
+
+    - name: Upload Native Build (Linux/MacOS)
+      if: matrix.os != 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: chaton-${{ matrix.label }}-${{ github.run_id }}
+        path: target/native-image/ChatOn-${{ matrix.label }}
+        retention-days: 5
+        if-no-files-found: error
 
     - name: Get version
       if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
@@ -168,7 +156,7 @@ jobs:
         files: |
           target/*-jar-with-dependencies.jar
           target/native-image/ChatOn-*
-        tag_name: ${{ steps.get_version.outputs.version }}
+        tag_name: v${{ steps.get_version.outputs.version }}
         name: Release ${{ steps.get_version.outputs.version }}
         draft: false
         prerelease: false
