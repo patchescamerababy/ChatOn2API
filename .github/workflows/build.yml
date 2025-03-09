@@ -53,10 +53,9 @@ jobs:
       run: mvn -B clean package --file pom.xml
 
     - name: Upload JAR Artifacts
-      if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
       uses: actions/upload-artifact@v4
       with:
-        name: jar-files-${{ github.run_id }}
+        name: jar-files
         path: target/*-jar-with-dependencies.jar
         retention-days: 5
 
@@ -124,38 +123,45 @@ jobs:
           --initialize-at-build-time=Main \
           --initialize-at-build-time=CompletionHandler
 
-    - name: Upload Native Build (Windows)
-      if: matrix.os == 'windows-latest'
+    - name: Upload Native Build
       uses: actions/upload-artifact@v4
       with:
-        name: chaton-${{ matrix.label }}-${{ github.run_id }}
-        path: target/native-image/ChatOn-${{ matrix.label }}.exe
+        name: chaton-${{ matrix.label }}
+        path: |
+          target/native-image/ChatOn-${{ matrix.label }}${{ matrix.os == 'windows-latest' && '.exe' || '' }}
         retention-days: 5
         if-no-files-found: error
 
-    - name: Upload Native Build (Linux/MacOS)
-      if: matrix.os != 'windows-latest'
-      uses: actions/upload-artifact@v4
-      with:
-        name: chaton-${{ matrix.label }}-${{ github.run_id }}
-        path: target/native-image/ChatOn-${{ matrix.label }}
-        retention-days: 5
-        if-no-files-found: error
-
+  release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    
     - name: Get version
-      if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
       id: get_version
       run: |
         VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
         echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+        merge-multiple: true
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release
+        cp artifacts/jar-files/* release/
+        cp artifacts/chaton-*/* release/
+        ls -la release/
+
     - name: Create Release
-      if: github.event_name == 'push' && matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
       uses: softprops/action-gh-release@v1
       with:
-        files: |
-          target/*-jar-with-dependencies.jar
-          target/native-image/ChatOn-*
+        files: release/*
         tag_name: v${{ steps.get_version.outputs.version }}
         name: Release ${{ steps.get_version.outputs.version }}
         draft: false
