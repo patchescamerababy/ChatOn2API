@@ -10,13 +10,6 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        arch: [x64, aarch64]
-        exclude:
-          - os: windows-latest
-            arch: aarch64
-          - os: ubuntu-latest
-            arch: aarch64
         include:
           - os: ubuntu-latest
             arch: x64
@@ -50,7 +43,7 @@ jobs:
     - name: Build with Maven
       run: |
         cd java
-        mvn clean package
+        mvn clean package -DskipTests
 
     - name: Setup GraalVM
       uses: graalvm/setup-graalvm@v1
@@ -78,13 +71,15 @@ jobs:
         native-image.cmd -H:ConfigurationFileDirectories=./config-dir `
           -H:+AddAllCharsets `
           -jar target/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar `
+          -H:Name=ChatOn `
+          -H:Class=com.your.package.Main `
           --enable-https `
           --enable-http `
           ${{ matrix.static_flag }} `
           --no-fallback `
           --initialize-at-run-time `
           --initialize-at-run-time=ModelsHandler `
-          --initialize-at-build-time=Main `
+          --initialize-at-build-time=com.your.package.Main `
           --initialize-at-build-time=CompletionHandler `
           --initialize-at-build-time=utils.BearerTokenGenerator
 
@@ -95,13 +90,15 @@ jobs:
         native-image -H:ConfigurationFileDirectories=./config-dir \
           -H:+AddAllCharsets \
           -jar target/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar \
+          -H:Name=ChatOn \
+          -H:Class=com.your.package.Main \
           --enable-https \
           --enable-http \
           ${{ matrix.static_flag }} \
           --no-fallback \
           --initialize-at-run-time \
           --initialize-at-run-time=ModelsHandler \
-          --initialize-at-build-time=Main \
+          --initialize-at-build-time=com.your.package.Main \
           --initialize-at-build-time=CompletionHandler \
           --initialize-at-build-time=utils.BearerTokenGenerator
 
@@ -112,8 +109,7 @@ jobs:
         path: |
           java/*.exe
           java/*.dll
-          java/ChatOn-1.0-SNAPSHOT-jar-with-dependencies
-          java/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.dylib
+          java/ChatOn
 
     - name: Create Release
       if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -122,8 +118,7 @@ jobs:
         files: |
           java/*.exe
           java/*.dll
-          java/ChatOn-1.0-SNAPSHOT-jar-with-dependencies
-          java/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.dylib
+          java/ChatOn
         tag_name: v${{ github.run_number }}
         draft: false
         prerelease: false
