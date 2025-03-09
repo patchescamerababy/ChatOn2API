@@ -1,0 +1,75 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Build with Maven
+      run: |
+        cd java
+        mvn clean package
+
+    - name: Setup GraalVM
+      uses: graalvm/setup-graalvm@v1
+      with:
+        java-version: '8'
+        distribution: 'graalvm'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        native-image-job-reports: 'true'
+
+    - name: Install Native Image
+      run: |
+        gu.cmd install native-image
+
+    - name: Build Native Image
+      working-directory: java
+      run: |
+        native-image.cmd -H:ConfigurationFileDirectories=./config-dir `
+          -H:+AddAllCharsets `
+          -jar target/ChatOn-1.0-SNAPSHOT-jar-with-dependencies.jar `
+          --enable-https `
+          --enable-http `
+          --static `
+          --no-fallback `
+          --initialize-at-run-time `
+          --initialize-at-run-time=ModelsHandler `
+          --initialize-at-build-time=Main `
+          --initialize-at-build-time=CompletionHandler `
+          --initialize-at-build-time=utils.BearerTokenGenerator
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ChatOn-native
+        path: |
+          java/*.exe
+          java/*.dll
+
+    - name: Create Release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          java/*.exe
+          java/*.dll
+        tag_name: v${{ github.run_number }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
