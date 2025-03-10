@@ -9,7 +9,6 @@
 
 可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
 
-### 不提供Bearer算法
 
 #### 支持的模型
 
