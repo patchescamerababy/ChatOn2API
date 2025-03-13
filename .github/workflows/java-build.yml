@@ -1,10 +1,14 @@
-name: Build and Release
+name: Java Build and Release
 
 on:
   push:
-    branches: [ "main" ]
+    paths:
+      - 'src/main/java/**'
+      - '.github/workflows/java-build.yml'
   pull_request:
-    branches: [ "main" ]
+    paths:
+      - 'src/main/java/**'
+      - '.github/workflows/java-build.yml'
 
 permissions:
   contents: write
