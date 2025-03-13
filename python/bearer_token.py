@@ -45,4 +45,4 @@ class BearerTokenGenerator:
 
     @staticmethod
     def get_user_agent() -> str:
-        return os.environ.get('USER_AGENT', 'ChatOn_Android/1.66.536')
+        return os.environ.get('USER_AGENT', '')
