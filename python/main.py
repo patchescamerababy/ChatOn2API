@@ -383,7 +383,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                                                 "id": generate_id(),
                                                 "object": "chat.completion.chunk",
                                                 "created": int(datetime.now(timezone.utc).timestamp()),
-                                                "model": "gpt-4o",  # 直接使用固定值，与Java代码一致
+                                                "model": "gpt-4o",
                                                 "choices": [{
                                                     "delta": {"content": content},
                                                     "index": 0,
@@ -408,8 +408,7 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                             else:
                                 continue
                 except httpx.RequestError as exc:
-                    # print(f"外部API请求失败: {exc}")
-                    yield f"data: {{\"error\": \"外部API请求失败: {str(exc)}\"}}\n\n"
+                    yield f"data: {{\"error\": \"请求失败: {str(exc)}\"}}\n\n"
 
         return StreamingResponse(
             event_generator(),
@@ -515,14 +514,14 @@ async def images_generations(request: Request):
                     return None
                 extracted_path = extract_path_from_markdown(image_markdown)
                 if not extracted_path:
-                    # print(f"Attempt {attempt} - 无法从 Markdown 中提取路径。")
+                    # print(f"Attempt {attempt} - 无法提取路径。")
                     return None
                 # print(f"Attempt {attempt} - 提取的路径: {extracted_path}")
                 storage_url = f"https://api.chaton.ai/storage/{extracted_path}"
                 # print(f"Attempt {attempt} - 存储URL: {storage_url}")
                 final_download_url = await fetch_get_url_from_storage(storage_url)
                 if not final_download_url:
-                    # print(f"Attempt {attempt} - 无法从 storage URL 获取最终下载链接。")
+                    # print(f"Attempt {attempt} - 无法获取最终下载链接。")
                     return None
                 # print(f"Attempt {attempt} - Final Download URL: {final_download_url}")
                 return final_download_url
