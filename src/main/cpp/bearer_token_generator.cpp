@@ -13,6 +13,10 @@ std::vector<unsigned char> BearerTokenGenerator::keyA;
 std::vector<unsigned char> BearerTokenGenerator::keyB;
 std::string BearerTokenGenerator::UA;
 
+const std::string& BearerTokenGenerator::GetUA() {
+    return UA;
+}
+
 bool BearerTokenGenerator::Initialize() {
     const char* envKeyA = std::getenv("KEY_A");
     const char* envKeyB = std::getenv("KEY_B");
@@ -27,10 +31,6 @@ bool BearerTokenGenerator::Initialize() {
     UA = std::string(envUA);
     
     return true;
-}
-
-const std::string& BearerTokenGenerator::GetUA() {
-    return UA;
 }
 
 std::vector<unsigned char> BearerTokenGenerator::StringToBytes(const std::string& str) {
