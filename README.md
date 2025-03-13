@@ -37,26 +37,32 @@ ImageToText：可传直链，如果传base64编码的图片服务需要部署在
 
 Usage:
 
-	--port # 指定的端口，默认80
- 	--base_url
+	--port # 指定的端口
  
 测试示例
 
  	curl --request POST 'http://127.0.0.1:8080/v1/chat/completions' \
  	--header 'Content-Type: application/json' \
- 	--header "Authorization: Bearer 123" \
  	--data '{"top_p":1,"stream":false,"temperature":0,"messages":[{"role":"user","content":"hello"}],"model":"gpt-4o"}'
   
 画图示例
 
 	curl --request POST 'http://127.0.0.1:8080/v1/images/generations' \
 	--header 'Content-Type: application/json' \
-	--header "Authorization: Bearer 123" \
 	--data '{"prompt":"girl","response_format":"b64_json","model":"gpt-4o","style":"vivid"}'
  
 或
 
  	curl --request POST 'http://127.0.0.1:8080/v1/images/generations' \
 	--header 'Content-Type: application/json' \
-	--header "Authorization: Bearer 123" \
 	--data '{"prompt": "girl", "model": "gpt-4o", "n": 1, "size": "1024x1024"}'
+
+# 关于环境变量
+
+去下载apk，然后抓包、Authorization的格式为"Bearer <>.<>"。把一段用Base64解码后，用16进制编辑器（HeX/WinHex）查就知道了。
+
+User-Agent自己抓包就能看出来了
+
+~~要查哪个文件具体哪个就不要问了~~
+
+~~其实某些工具可以直接查目录下包含所需内容的文件~~
