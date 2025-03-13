@@ -4,6 +4,9 @@
 #include <string>
 #include <vector>
 
+// Base64编码函数声明
+std::string base64Encode(const std::vector<unsigned char>& data);
+
 class BearerTokenGenerator {
 public:
 
@@ -16,13 +19,13 @@ public:
     static bool Initialize();
     
 
-    static const std::string& GetUA();
+    static const std::string& UA;
 
 private:
 
     static std::vector<unsigned char> keyA;
     static std::vector<unsigned char> keyB;
-    static std::string UA;
+
 
     static std::vector<unsigned char> signature(const std::vector<unsigned char>& key,
                                               const std::vector<unsigned char>& data);
