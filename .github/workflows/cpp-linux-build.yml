@@ -77,7 +77,7 @@ jobs:
         with:
           tag_name: v${{ env.DATE }}
           name: Release v${{ env.DATE }}
-          files: ChatOn-linux/ChatOn-linux
+          files: ChatOn-linux/ChatOn
           draft: false
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
