@@ -19,12 +19,13 @@ public:
     static bool Initialize();
     
 
-    static const std::string& UA;
+    static const std::string& GetUA();
 
 private:
 
     static std::vector<unsigned char> keyA;
     static std::vector<unsigned char> keyB;
+    static std::string UA;
 
 
     static std::vector<unsigned char> signature(const std::vector<unsigned char>& key,
