@@ -101,9 +101,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           tag_name: v${{ env.DATE }}
           name: Release v${{ env.DATE }}
-          files: ChatOn-linux/ChatOn-linux
+          files: ChatOn-windows-msvc/ChatOn-MSVC-windows.zip
           draft: false
           prerelease: false
-          token: ${{ secrets.GITHUB_TOKEN }}
