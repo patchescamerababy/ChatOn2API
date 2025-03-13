@@ -1,0 +1,94 @@
+name: Build and Release Windows (GCC/MinGW)
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - '.github/workflows/cpp-windows-gcc-build.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - '.github/workflows/cpp-windows-gcc-build.yml'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Windows Dependencies for GCC (MinGW)
+        shell: bash
+        run: |
+          choco install msys2 -y
+          C:/msys64/usr/bin/pacman.exe -Syu --noconfirm
+          C:/msys64/usr/bin/pacman.exe -S --noconfirm mingw-w64-x86_64-gcc mingw-w64-x86_64-make mingw-w64-x86_64-curl mingw-w64-x86_64-openssl mingw-w64-x86_64-sqlite3 mingw-w64-x86_64-zlib
+          mkdir -p C:/msys64/mingw64/include/nlohmann
+          git clone https://github.com/yhirose/cpp-httplib.git
+          cp cpp-httplib/httplib.h C:/msys64/mingw64/include/
+          git clone https://github.com/nlohmann/json.git
+          cp json/single_include/nlohmann/json.hpp C:/msys64/mingw64/include/nlohmann/
+
+      - name: Create Build Directories
+        run: mkdir -p build/obj build/bin
+        shell: bash
+
+      - name: Build Project with GCC (MinGW)
+        shell: bash
+        run: |
+          export PATH="/c/msys64/mingw64/bin:$PATH"
+          for cpp_file in src/main/cpp/*.cpp; do
+            obj_file="build/obj/$(basename ${cpp_file%.cpp}).o"
+            g++ -std=c++2a -Wall -Wextra -DCPPHTTPLIB_OPENSSL_SUPPORT \
+                -I/c/msys64/mingw64/include -c "$cpp_file" -o "$obj_file"
+          done
+          g++ build/obj/*.o -o build/bin/ChatOn.exe \
+              -L/c/msys64/mingw64/lib -lws2_32 -lz -lcurl -lssl -lcrypto -lsqlite3 -lwsock32 -lwinmm
+
+      - name: Install 7z on Windows
+        shell: bash
+        run: choco install 7zip -y
+
+      - name: Collect Artifact
+        shell: bash
+        run: |
+          mkdir -p build/release/mingw
+          cp build/bin/ChatOn.exe build/release/mingw/
+          # 如有需要复制 DLL 文件（若不存在则忽略错误）
+          cp /c/msys64/mingw64/bin/*.dll build/release/mingw/ || true
+          cd build
+          7z a ChatOn-GCC-windows.zip release/mingw/
+          cd ..
+          echo "Listing build folder:"
+          ls -la build
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatOn-windows-gcc
+          path: build/ChatOn-GCC-windows.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ChatOn-windows-gcc
+          path: ChatOn-windows-gcc
+
+      - name: List Downloaded Files
+        run: ls -la ChatOn-windows-gcc
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.DATE }}
+          name: Release v${{ env.DATE }}
+          files: ChatOn-windows-gcc/ChatOn-GCC-windows.zip
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+          
