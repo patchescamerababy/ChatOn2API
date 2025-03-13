@@ -1,0 +1,103 @@
+name: Go Build
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - 'go/**'
+      - '.github/workflows/go-build.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - 'go/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+    - name: Run Tests
+      working-directory: ./go
+      run: go test -v ./...
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Windows builds
+          - goos: windows
+            goarch: amd64
+            suffix: .exe
+            label: windows-x64
+          - goos: windows
+            goarch: arm64
+            suffix: .exe
+            label: windows-arm64
+          - goos: windows
+            goarch: 386
+            suffix: .exe
+            label: windows-x86
+          # Linux builds
+          - goos: linux
+            goarch: amd64
+            suffix: ''
+            label: linux-x64
+          - goos: linux
+            goarch: arm64
+            suffix: ''
+            label: linux-arm64
+          - goos: linux
+            goarch: 386
+            suffix: ''
+            label: linux-x86
+          # macOS builds
+          - goos: darwin
+            goarch: amd64
+            suffix: ''
+            label: macos-x64
+          - goos: darwin
+            goarch: arm64
+            suffix: ''
+            label: macos-arm64
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.23'
+
+    - name: Create dist directory
+      run: mkdir -p dist
+
+    - name: Build
+      working-directory: ./go
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      run: |
+        output_name="../dist/ChatOn-api${{ matrix.suffix }}"
+        go build -o "$output_name" -v ./...
+
+    - name: Upload Build
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.label }}
+        path: dist/ChatOn-api${{ matrix.suffix }}
+        retention-days: 5
+
+    - name: Create Release
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: dist/ChatOn-api${{ matrix.suffix }}
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
