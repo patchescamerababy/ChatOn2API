@@ -82,12 +82,16 @@ jobs:
       - name: List Downloaded Files
         run: ls -la ChatOn-windows-gcc
 
+      - name: Set up date
+        id: date
+        run: echo "DATE=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
+        
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ env.DATE }}
           name: Release v${{ env.DATE }}
-          files: ChatOn-windows-gcc/ChatOn-GCC-windows.zip
+          files: ChatOn-linux/ChatOn-linux
           draft: false
           prerelease: false
           token: ${{ secrets.GITHUB_TOKEN }}
