@@ -116,9 +116,9 @@ async def upload_base64_image(base64_str: str) -> Optional[str]:
 
     headers = {
         "Date": formatted_date,
-        "Client-time-zone": "-05:00",
+        "Client-time-zone": "-04:00",
         "Authorization": tmp_token,
-        "User-Agent": "ChatOn_Android/1.66.536",
+        "User-Agent": BearerTokenGenerator.get_user_agent(),
         "Accept-language": "en-US",
         "X-Cl-Options": "hb",
         "Content-Type": f"multipart/form-data; boundary={boundary}",
@@ -318,9 +318,9 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
     #bearer_token, formatted_date = tmp_token
     headers = {
         "Date": formatted_date,
-        "Client-time-zone": "-05:00",
+        "Client-time-zone": "-04:00",
         "Authorization": tmp_token,
-        "User-Agent": "ChatOn_Android/1.66.536",
+        "User-Agent": BearerTokenGenerator.get_user_agent(),
         "Accept-Language": "en-US",
         "X-Cl-Options": "hb",
         "Content-Type": "application/json; charset=UTF-8",
@@ -482,9 +482,9 @@ async def images_generations(request: Request):
             #bearer_token, formatted_date = tmp_token
             headers = {
                 "Date": formatted_date,
-                "Client-time-zone": "-05:00",
+                "Client-time-zone": "-04:00",
                 "Authorization": tmp_token,
-                "User-Agent": "ChatOn_Android/1.66.536",
+                "User-Agent": BearerTokenGenerator.get_user_agent(),
                 "Accept-Language": "en-US",
                 "X-Cl-Options": "hb",
                 "Content-Type": "application/json; charset=UTF-8",
