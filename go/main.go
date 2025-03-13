@@ -61,9 +61,9 @@ func buildHttpRequestNew(modifiedRequestBody string, tmpToken string, date strin
 		return nil, err
 	}
 	req.Header.Set("Date", date)
-	req.Header.Set("Client-time-zone", "-05:00")
+	req.Header.Set("Client-time-zone", "-04:00")
 	req.Header.Set("Authorization", tmpToken)
-	req.Header.Set("User-Agent", "ChatOn_Android/1.66.536")
+	req.Header.Set("User-Agent", os.Getenv("USER_AGENT")
 	req.Header.Set("Accept-Language", "en-US")
 	req.Header.Set("X-Cl-Options", "hb")
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
@@ -986,8 +986,8 @@ func fetchURL(url string) string {
 
 	req.Header.Set("Authorization", bearerToken)
 	req.Header.Set("Date", formattedDate)
-	req.Header.Set("Client-time-zone", "-05:00")
-	req.Header.Set("User-Agent", "ChatOn_Android/1.66.536")
+	req.Header.Set("Client-time-zone", "-04:00")
+	req.Header.Set("User-Agent", os.Getenv("USER_AGENT")
 	req.Header.Set("Accept-language", "en-US")
 	req.Header.Set("X-Cl-Options", "hb")
 	req.Header.Set("Accept-Encoding", "gzip")
@@ -1200,9 +1200,9 @@ func uploadImage(imageBytes []byte, extension string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Date", formattedDate)
-	req.Header.Set("Client-time-zone", "-05:00")
+	req.Header.Set("Client-time-zone", "-04:00")
 	req.Header.Set("Authorization", uploadBearerToken)
-	req.Header.Set("User-Agent", "ChatOn_Android/1.66.536")
+	req.Header.Set("User-Agent", os.Getenv("USER_AGENT")
 	req.Header.Set("Accept-language", "en-US")
 	req.Header.Set("X-Cl-Options", "hb")
 	req.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
