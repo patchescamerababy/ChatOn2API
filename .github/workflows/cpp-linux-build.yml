@@ -1,0 +1,79 @@
+name: Linux Build and Release
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - '.github/workflows/cpp-linux-build.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - '.github/workflows/cpp-linux-build.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make libcurl4-openssl-dev libssl-dev libsqlite3-dev zlib1g-dev
+          sudo mkdir -p /usr/local/include/nlohmann
+          git clone https://github.com/yhirose/cpp-httplib.git
+          sudo cp cpp-httplib/httplib.h /usr/local/include/
+          git clone https://github.com/nlohmann/json.git
+          sudo cp json/single_include/nlohmann/json.hpp /usr/local/include/nlohmann/
+
+      - name: Create Build Directories
+        run: mkdir -p build/obj build/bin
+
+      - name: Build Project
+        run: |
+          echo "GCC Version:"
+          g++ --version
+
+          for file in src/main/cpp/*.cpp; do
+            obj="build/obj/$(basename ${file%.cpp}).o"
+            g++ -std=c++23 -Wall -Wextra -I/usr/local/include -c "$file" -o "$obj"
+          done
+          g++ build/obj/*.o -o build/bin/ChatOn \
+              -static-libstdc++ -static-libgcc \
+              -Wl,-rpath,/usr/lib/x86_64-linux-gnu \
+              -lcurl -lssl -lcrypto -lsqlite3 -lz -pthread
+
+
+      - name: List Build Artifacts
+        run: ls -la build/bin
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatOn-linux
+          path: build/bin/ChatOn
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ChatOn-linux
+          path: ChatOn-linux
+
+      - name: List Downloaded Files
+        run: ls -la ChatOn-linux
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.DATE }}
+          name: Release v${{ env.DATE }}
+          files: ChatOn-linux/ChatOn
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
