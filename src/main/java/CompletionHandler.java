@@ -85,8 +85,7 @@ public class CompletionHandler implements HttpHandler {
                 String model = requestJson.optString("model", "gpt-4o");
 
                 boolean isStream = requestJson.optBoolean("stream", false);
-
-boolean hasImage = false;
+                boolean hasImage = false;
 
                 boolean hasURL = false;
                 if (messages != null) {
@@ -124,8 +123,8 @@ boolean hasImage = false;
                                             String dataUrl = imageUrlObj.getString("url");
                                             String imageURL;
                                             if (dataUrl.startsWith("data:image/")) {
-                                                // 处理 Base64 编码的图片
                                                 imageURL = utils.UtilsOkHttp.uploadImage(dataUrl);
+
                                                 System.out.println("图片已上传，URL: " + imageURL);
                                             } else {
                                                 // 处理标准 URL 的图片
@@ -225,7 +224,7 @@ boolean hasImage = false;
                 // 构建新的请求 JSON，替换相关内容
                 JSONObject newRequestJson = new JSONObject();
                 newRequestJson.put("function_image_gen", true);
-                newRequestJson.put("function_web_search", true);
+                newRequestJson.put("function_web_search", !hasURL);
                 newRequestJson.put("max_tokens", maxTokens);
                 newRequestJson.put("web_search_engine", "auto");
                 newRequestJson.put("model", model);
