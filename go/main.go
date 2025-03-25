@@ -1413,12 +1413,6 @@ func createHTTPServer(initialPort int) (*http.Server, int, error) {
 }
 
 func main() {
-	//判断是否使用代理，并打印信息
-	if http.ProxyFromEnvironment == nil {
-		log.Println("未使用代理")
-	} else {
-
-	}
 	// 解析命令行参数
 	if len(os.Args) > 1 {
 		p, err := strconv.Atoi(os.Args[1])
