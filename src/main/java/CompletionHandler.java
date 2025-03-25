@@ -99,10 +99,13 @@ public class CompletionHandler implements HttpHandler {
                         if (message.has("content")) {
                             Object contentObj = message.get("content");
 
+                            // 定义一个链表用于存储所有图片 URL
+                            LinkedList<String> imageUrlList = new LinkedList<>();
+                            boolean messageHasImage = false;
+
                             if (contentObj instanceof JSONArray) {
                                 JSONArray contentArray = (JSONArray) contentObj;
                                 StringBuilder msgContentBuilder = new StringBuilder();
-                                boolean messageHasImage = false;
 
                                 for (int j = 0; j < contentArray.length(); j++) {
                                     JSONObject contentItem = contentArray.getJSONObject(j);
@@ -119,36 +122,33 @@ public class CompletionHandler implements HttpHandler {
                                             // 处理图片内容
                                             JSONObject imageUrlObj = contentItem.getJSONObject("image_url");
                                             String dataUrl = imageUrlObj.getString("url");
+                                            String imageURL;
                                             if (dataUrl.startsWith("data:image/")) {
                                                 // 处理 Base64 编码的图片：解码后通过 HTTP 上传到 storage 服务
-                                                imageURL = utils.UtilsOkHttp.uploadImage(dataUrl);
-
-                                                hasImage = true;
-                                                messageHasImage = true;
+                                                imageURL = utils.utils.uploadImage(dataUrl);
                                                 System.out.println("图片已上传，URL: " + imageURL);
-
-                                                // 将上传后的图片 URL 填入消息中
-                                                JSONArray imagesArray = new JSONArray();
-                                                JSONObject imageObj = new JSONObject();
-                                                imageObj.put("data", imageURL);
-                                                imagesArray.put(imageObj);
-                                                message.put("images", imagesArray);
                                             } else {
                                                 // 处理标准 URL 的图片
                                                 imageURL = dataUrl;
-                                                hasImage = true;
-                                                messageHasImage = true;
                                                 System.out.println("接收到标准图片 URL: " + imageURL);
-
-                                                // 在消息中添加 images 字段
-                                                JSONArray imagesArray = new JSONArray();
-                                                JSONObject imageObj = new JSONObject();
-                                                imageObj.put("data", imageURL);
-                                                imagesArray.put(imageObj);
-                                                message.put("images", imagesArray);
                                             }
+                                            // 标记此消息包含图片，并添加到链表中
+                                            hasImage = true;
+                                            messageHasImage = true;
+                                            imageUrlList.add(imageURL);
                                         }
                                     }
+                                }
+
+                                // 如果链表中有图片 URL，则将其封装到 images 字段中
+                                if (!imageUrlList.isEmpty()) {
+                                    JSONArray imagesArray = new JSONArray();
+                                    for (String url : imageUrlList) {
+                                        JSONObject imageObj = new JSONObject();
+                                        imageObj.put("data", url);
+                                        imagesArray.put(imageObj);
+                                    }
+                                    message.put("images", imagesArray);
                                 }
 
                                 // 处理完 contentArray 后，设置消息的 content 字段
@@ -183,26 +183,22 @@ public class CompletionHandler implements HttpHandler {
 
                         if (role.equals("system") && message.has("content")) {
                             String systemContent = message.optString("content", "");
-                            System.out.println("原System Content: \n" + systemContent);
                             if (!systemContent.contains("This dialog contains a call to the web search function. Use it only when you need to get up-to-date data or data that is not in your training database.")) {
                                 systemContent = "This dialog contains a call to the web search function. Use it only when you need to get up-to-date data or data that is not in your training database.\n" + systemContent;
                             }
-                            System.out.println("现System Content: \n" + systemContent);
                             contentBuilder.append(systemContent);
                             message.put("content", systemContent);
                         }
-                        String userContent = "";
-                        String url = "";
 
                         if (role.equals("user") && message.has("content")) {
-                            userContent = message.optString("content", "");
+                            String userContent = message.optString("content", "");
                             if (userContent.contains("http://") || userContent.contains("https://")) {
                                 Pattern pattern = Pattern.compile("https?://[A-Za-z0-9\\-._~:/?#\\[\\]@!$&'()*+,;=%]+(?=$|\\s)");
                                 Matcher matcher = pattern.matcher(userContent);
                                 if (matcher.find()) {
-                                    url = matcher.group();
+                                    String url = matcher.group();
                                     System.out.println("URL: " + url);
-
+                                    hasURL = false;
                                     message.put("content", userContent + "\n\n" + utils.utils.fetchURL(url));
                                 }
                             }
