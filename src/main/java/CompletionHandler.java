@@ -26,15 +26,13 @@ import java.io.ByteArrayInputStream;
 
 import static utils.utils.sendError;
 
-/**
- * 处理聊天补全请求的处理器，使用 OkHttp 替代 HttpClient
- */
+
 public class CompletionHandler implements HttpHandler {
 
     // OkHttp 客户端实例
     private final OkHttpClient okHttpClient = utils.utils.getOkHttpClient();
 
-    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
