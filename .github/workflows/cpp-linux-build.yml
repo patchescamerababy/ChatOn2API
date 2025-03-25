@@ -3,11 +3,11 @@ name: Linux Build and Release
 on:
   push:
     paths:
-      - 'src/**'
+      - 'src/main/cpp/**'
       - '.github/workflows/cpp-linux-build.yml'
   pull_request:
     paths:
-      - 'src/**'
+      - 'src/main/cpp/**'
       - '.github/workflows/cpp-linux-build.yml'
 
 jobs:
