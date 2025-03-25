@@ -245,6 +245,8 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
         if isinstance(content, list):
             text_parts = []
             images = []
+            base64_upload_tasks = []  # 存放所有 base64 图片上传任务
+
             for item in content:
                 if "text" in item:
                     text_parts.append(item.get("text", ""))
@@ -254,19 +256,29 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                     url = image_info.get("url", "")
                     if is_base64_image(url):
                         try:
-                            base64_str = url.split(",")[1]
-                            # 上传 Base64 图片后获得最终 URL
-                            uploaded_url = await upload_base64_image(base64_str)
-                            if uploaded_url:
-                                images.append({"data": uploaded_url})
-                                print("\n可访问的链接: \n" + uploaded_url+"\n")
-                            else:
-                                print("上传Base64图片失败")
+                            parts = url.split(",")
+                            if len(parts) != 2:
+                                continue
+                            base64_str = parts[1]
+                            # 添加上传任务，不立即 await
+                            base64_upload_tasks.append(upload_base64_image(base64_str))
                         except Exception as e:
                             print(f"处理Base64图片失败: {e}")
                             continue
                     else:
+                        # 标准 URL 直接添加
                         images.append({"data": url})
+            # 并发等待所有 base64 图片上传任务完成
+            if base64_upload_tasks:
+                upload_results = await asyncio.gather(*base64_upload_tasks, return_exceptions=True)
+                for result in upload_results:
+                    if isinstance(result, Exception):
+                        print(f"处理Base64图片失败: {result}")
+                    elif result:
+                        images.append({"data": result})
+                        print("\n可访问的链接: \n" + result + "\n")
+                    else:
+                        print("上传Base64图片失败")
             extracted_content = " ".join(text_parts).strip()
             if extracted_content:
                 has_text = True
@@ -274,14 +286,12 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                 if images:
                     message["images"] = images
                 cleaned_messages.append(message)
-                # print("Extracted:", extracted_content)
             else:
                 if images:
                     has_image = True
                     message["content"] = ""
                     message["images"] = images
                     cleaned_messages.append(message)
-                    # print("Extracted image only.")
                 else:
                     print("Deleted message with empty content.")
         elif isinstance(content, str):
@@ -290,14 +300,10 @@ async def chat_completions(request: Request, background_tasks: BackgroundTasks):
                 has_text = True
                 message["content"] = content_str
                 cleaned_messages.append(message)
-                # print("Retained content:", content_str)
             else:
                 print("Deleted message with empty content.")
         else:
             print("Deleted non-expected type of content message.")
-
-    if not cleaned_messages:
-        raise HTTPException(status_code=400, detail="所有消息的内容均为空。")
 
     new_request_json = {
         "function_image_gen": False,
