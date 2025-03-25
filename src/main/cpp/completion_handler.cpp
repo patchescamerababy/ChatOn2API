@@ -3,8 +3,8 @@
 #include "completion_handler.h"
 #include "header_manager.h"
 #include "global.h"
-#include "bearer_token_generator.h"  // È·±£°üº¬¸ÃÍ·ÎÄ¼ş
-#include "image_generations_handler.h"  // È·±£¿ÉÒÔÊ¹ÓÃ base64_decode ·½·¨
+#include "bearer_token_generator.h"
+#include "image_generations_handler.h"
 #include "image_uploader.h"
 
 #include <iostream>
@@ -28,18 +28,19 @@
 #include <condition_variable>
 #include <queue>
 #include <memory>
+#include <future>
 
 using json = nlohmann::json;
 
 // -------------------------
-// È±Ê§µÄº¯Êı¶¨Òå²¹³ä
+// ç¼ºå¤±çš„å‡½æ•°å®šä¹‰è¡¥å……
 // -------------------------
 
 CompletionHandler::CompletionHandler() : hasImage_(false) {
     std::setlocale(LC_ALL, "zh_CN.UTF-8");
 }
 
-// ÕâÀï¸ù¾İĞèÒªĞŞ¸ÄÄãµÄÉÏÓÎÇëÇóµØÖ·¡¢³¬Ê±¡¢´úÀíµÈ
+// è¿™é‡Œæ ¹æ®éœ€è¦ä¿®æ”¹ä½ çš„ä¸Šæ¸¸è¯·æ±‚åœ°å€ã€è¶…æ—¶ã€ä»£ç†ç­‰
 CURL* CompletionHandler::createCompletionConnection(struct curl_slist* headers, const std::string& jsonBody) {
     CURL* curl = curl_easy_init();
     if (!curl) return nullptr;
@@ -54,7 +55,7 @@ CURL* CompletionHandler::createCompletionConnection(struct curl_slist* headers, 
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 60L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-    // ÈçĞè´úÀíÇë×ÔĞĞ¿ªÆô
+    // å¦‚éœ€ä»£ç†è¯·è‡ªè¡Œå¼€å¯
     //curl_easy_setopt(curl, CURLOPT_PROXY, "127.0.0.1");
     //curl_easy_setopt(curl, CURLOPT_PROXYPORT, 5257L);
 
@@ -65,41 +66,42 @@ CURL* CompletionHandler::createCompletionConnection(struct curl_slist* headers, 
     return curl;
 }
 
-// ·ÇÁ÷Ê½»Øµ÷£º½«Êı¾İÈ«²¿·ÅÈëÒ»¸ö std::string£¨¾ÉµÄÂß¼­£¬ÈçÎŞĞèĞŞ¸Ä¿É±£Áô£©
+// éæµå¼å›è°ƒï¼šå°†æ•°æ®å…¨éƒ¨æ”¾å…¥ä¸€ä¸ª std::stringï¼ˆæ—§çš„é€»è¾‘ï¼Œå¦‚æ— éœ€ä¿®æ”¹å¯ä¿ç•™ï¼‰
 size_t CompletionResponseCallback(void* contents, size_t size, size_t nmemb, std::string* s) {
     size_t newLength = size * nmemb;
     try {
         s->append(static_cast<char*>(contents), newLength);
         return newLength;
-    } catch (std::bad_alloc& e) {
+    }
+    catch (std::bad_alloc& e) {
         return 0;
     }
 }
 
 // -------------------------
-// ÄäÃûÃüÃû¿Õ¼ä·ÅÖÃÒ»Ğ©¸¨Öúº¯Êı
+// åŒ¿åå‘½åç©ºé—´æ”¾ç½®ä¸€äº›è¾…åŠ©å‡½æ•°
 // -------------------------
 namespace {
 
-    // ĞĞ»º³å½á¹¹£¬ÓÃÓÚÉú²úÕß-Ïû·ÑÕßÄ£ĞÍ
+    // è¡Œç¼“å†²ç»“æ„ï¼Œç”¨äºç”Ÿäº§è€…-æ¶ˆè´¹è€…æ¨¡å‹
     struct StreamBuffer {
         std::mutex mtx;
         std::condition_variable cv;
         std::queue<std::string> lines;
-        bool finished = false;          // ±ê¼ÇÊÇ·ñÉÏÓÎÊı¾İ½ÓÊÕÍê±Ï
-        std::string partialBuffer;      // ´æ·Å²»ÍêÕûµÄÄÇÒ»½ØÊı¾İ
+        bool finished = false;          // æ ‡è®°æ˜¯å¦ä¸Šæ¸¸æ•°æ®æ¥æ”¶å®Œæ¯•
+        std::string partialBuffer;      // å­˜æ”¾ä¸å®Œæ•´çš„é‚£ä¸€æˆªæ•°æ®
     };
 
-    // Curl Ğ´»Øµ÷£ºÃ¿´Î¶Áµ½Ò»ÅúÊı¾İ£¬Æ´½Óµ½ partialBuffer£¬ÔÙÓÃ»»ĞĞ·ûÇĞ·ÖÍêÕûĞĞ
+    // Curl å†™å›è°ƒï¼šæ¯æ¬¡è¯»åˆ°ä¸€æ‰¹æ•°æ®ï¼Œæ‹¼æ¥åˆ° partialBufferï¼Œå†ç”¨æ¢è¡Œç¬¦åˆ‡åˆ†å®Œæ•´è¡Œ
     size_t CurlWriteCallback(void* ptr, size_t size, size_t nmemb, void* userdata) {
         size_t total = size * nmemb;
         auto streamBuffer = static_cast<StreamBuffer*>(userdata);
         std::string data(static_cast<char*>(ptr), total);
         {
             std::lock_guard<std::mutex> lock(streamBuffer->mtx);
-            // ½«×îĞÂ¶ÁÈ¡µ½µÄÊı¾İÌí¼Óµ½ partialBuffer
+            // å°†æœ€æ–°è¯»å–åˆ°çš„æ•°æ®æ·»åŠ åˆ° partialBuffer
             streamBuffer->partialBuffer += data;
-            // ²éÕÒ»»ĞĞ·û£¬½«ÍêÕûĞĞ·ÖÀë³öÀ´
+            // æŸ¥æ‰¾æ¢è¡Œç¬¦ï¼Œå°†å®Œæ•´è¡Œåˆ†ç¦»å‡ºæ¥
             size_t pos = 0;
             while ((pos = streamBuffer->partialBuffer.find('\n')) != std::string::npos) {
                 std::string line = streamBuffer->partialBuffer.substr(0, pos);
@@ -111,8 +113,8 @@ namespace {
         return total;
     }
 
-    // È¥µô×Ö·û´®×óÓÒµÄ¿Õ°××Ö·û
-    static std::string trim(const std::string &s) {
+    // å»æ‰å­—ç¬¦ä¸²å·¦å³çš„ç©ºç™½å­—ç¬¦
+    static std::string trim(const std::string& s) {
         size_t start = s.find_first_not_of(" \t\n\r");
         if (start == std::string::npos)
             return "";
@@ -120,8 +122,8 @@ namespace {
         return s.substr(start, end - start + 1);
     }
 
-    // ÅĞ¶Ï SSE ÏûÏ¢ÖĞÊÇ·ñ°üº¬ĞèÒª¹ıÂËµÄÄÚÈİ£¨ÀıÈç ping »ò analytics ĞÅÏ¢£©
-    static bool shouldFilterOut(const json &j) {
+    // åˆ¤æ–­ SSE æ¶ˆæ¯ä¸­æ˜¯å¦åŒ…å«éœ€è¦è¿‡æ»¤çš„å†…å®¹ï¼ˆä¾‹å¦‚ ping æˆ– analytics ä¿¡æ¯ï¼‰
+    static bool shouldFilterOut(const json& j) {
         if (j.contains("ping"))
             return true;
         if (j.contains("data")) {
@@ -136,10 +138,10 @@ namespace {
 }
 
 // -------------------------
-// ÒÔÏÂÎª CompletionHandler ÀàÆäËû³ÉÔ±º¯Êı
+// ä»¥ä¸‹ä¸º CompletionHandler ç±»å…¶ä»–æˆå‘˜å‡½æ•°
 // -------------------------
 
-// ¼òµ¥µÄ token ¼ÆÊıÊ¾Àı
+// ç®€å•çš„ token è®¡æ•°ç¤ºä¾‹
 int countTokens(const std::string& text) {
     if (text.empty()) return 0;
     std::istringstream iss(text);
@@ -151,7 +153,7 @@ int countTokens(const std::string& text) {
     return tokenCount;
 }
 
-// ¾ÛºÏ SSE ÏìÓ¦£ºÈç¹ûÊÇ·ÇÁ÷Ê½£¬°ÑËùÓĞ SSE ÄÃµ½ºóÔÙÒ»´ÎĞÔ½âÎö
+// èšåˆ SSE å“åº”ï¼šå¦‚æœæ˜¯éæµå¼ï¼ŒæŠŠæ‰€æœ‰ SSE æ‹¿åˆ°åå†ä¸€æ¬¡æ€§è§£æ
 std::pair<std::string, int> CompletionHandler::aggregateSSEResponse(const std::string& sseResponse) {
     std::istringstream iss(sseResponse);
     std::string line;
@@ -173,15 +175,16 @@ std::pair<std::string, int> CompletionHandler::aggregateSSEResponse(const std::s
                         }
                     }
                 }
-            } catch (std::exception &e) {
-                std::cerr << "JSON½âÎö´íÎó: " << e.what() << std::endl;
+            }
+            catch (std::exception& e) {
+                std::cerr << "JSONè§£æé”™è¯¯: " << e.what() << std::endl;
             }
         }
     }
-    return {aggregatedContent, completionTokens};
+    return { aggregatedContent, completionTokens };
 }
 
-// ×é×°×îÖÕ·µ»Ø¸øÓÃ»§µÄ JSON
+// ç»„è£…æœ€ç»ˆè¿”å›ç»™ç”¨æˆ·çš„ JSON
 std::string CompletionHandler::buildFinalJson(const std::string& aggregatedContent, int completionTokens, const json& requestJson) {
     json openAIResponse;
     openAIResponse["id"] = "chatcmpl-" + std::to_string(std::time(nullptr));
@@ -226,7 +229,7 @@ std::string CompletionHandler::buildFinalJson(const std::string& aggregatedConte
     return openAIResponse.dump();
 }
 
-// ´¦Àí OPTIONS ÇëÇó
+// å¤„ç† OPTIONS è¯·æ±‚
 void CompletionHandler::handleOptionsRequest(httplib::Response& res) {
     res.set_header("Access-Control-Allow-Origin", "*");
     res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -235,7 +238,7 @@ void CompletionHandler::handleOptionsRequest(httplib::Response& res) {
     res.status = 204;
 }
 
-// ´¦Àí GET ÇëÇó
+// å¤„ç† GET è¯·æ±‚
 void CompletionHandler::handleGetRequest(httplib::Response& res) {
     res.set_header("Access-Control-Allow-Origin", "*");
     res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -244,10 +247,10 @@ void CompletionHandler::handleGetRequest(httplib::Response& res) {
 
     std::string response = R"(
         <html>
-          <head><meta charset="UTF-8"><title>»¶Ó­Ê¹ÓÃAPI</title></head>
+          <head><meta charset="UTF-8"><title>æ¬¢è¿ä½¿ç”¨API</title></head>
           <body>
-            <h1>»¶Ó­Ê¹ÓÃAPI</h1>
-            <p>´Ë API ÓÃÓÚÓë ChatGPT / Claude Ä£ĞÍ½»»¥¡£Äú¿ÉÒÔ·¢ËÍÏûÏ¢¸øÄ£ĞÍ²¢½ÓÊÕÏìÓ¦¡£</p>
+            <h1>æ¬¢è¿ä½¿ç”¨API</h1>
+            <p>æ­¤ API ç”¨äºä¸ ChatGPT / Claude æ¨¡å‹äº¤äº’ã€‚æ‚¨å¯ä»¥å‘é€æ¶ˆæ¯ç»™æ¨¡å‹å¹¶æ¥æ”¶å“åº”ã€‚</p>
           </body>
         </html>)";
 
@@ -256,7 +259,7 @@ void CompletionHandler::handleGetRequest(httplib::Response& res) {
     res.set_content(response, "text/html");
 }
 
-// ´¦Àí·¢ËÍ¹ıÀ´µÄ messages£¬¸ù¾İĞèÒªÉÏ´«Í¼Æ¬µÈ
+// å¤„ç†å‘é€è¿‡æ¥çš„ messagesï¼Œæ ¹æ®éœ€è¦ä¸Šä¼ å›¾ç‰‡ç­‰
 nlohmann::json CompletionHandler::processMessages(const nlohmann::json& messages) {
     nlohmann::json processedMessages = nlohmann::json::array();
     if (!messages.is_array()) return processedMessages;
@@ -271,27 +274,28 @@ nlohmann::json CompletionHandler::processMessages(const nlohmann::json& messages
                 std::string textContent;
                 bool messageHasImage = false;
                 nlohmann::json imagesArray = nlohmann::json::array();
+                // å­˜æ”¾æ‰€æœ‰å¼‚æ­¥å›¾ç‰‡ä¸Šä¼ ä»»åŠ¡çš„ future
+                std::vector<std::future<std::string>> imageUploadFutures;
 
                 for (const auto& item : contentValue) {
                     if (item.contains("type")) {
                         std::string type = item["type"];
                         if (type == "text" && item.contains("text")) {
                             textContent += item["text"].get<std::string>() + " ";
-                        } else if (type == "image_url" && item.contains("image_url")) {
+                        }
+                        else if (type == "image_url" && item.contains("image_url")) {
                             std::string imageUrl = item["image_url"]["url"].get<std::string>();
                             if (imageUrl.rfind("data:image/", 0) == 0) {
-                                // µ÷ÓÃÍ¼Æ¬ÉÏ´«Âß¼­
-                                std::string uploadedUrl = uploadImageFromDataUrl(imageUrl);
-                                if (uploadedUrl.empty()) {
-                                    throw std::runtime_error("Í¼Æ¬ÉÏ´«Ê§°Ü£¬ÇëÉÔºóÖØÊÔ¡£");
-                                }
-                                std::cout << "Base64 Í¼Æ¬ÒÑÉÏ´«£¬URL: " << uploadedUrl << std::endl;
-                                nlohmann::json imageObj;
-                                imageObj["data"] = uploadedUrl;
-                                imagesArray.push_back(imageObj);
-                            } else {
-                                // ±ê×¼ URL
-                                std::cout << "½ÓÊÕµ½±ê×¼Í¼Æ¬ URL: " << imageUrl << std::endl;
+                                // å¼‚æ­¥ä¸Šä¼  base64 æ ¼å¼çš„å›¾ç‰‡
+                                imageUploadFutures.push_back(
+                                    std::async(std::launch::async, [imageUrl]() -> std::string {
+                                        return uploadImageFromDataUrl(imageUrl);
+                                        })
+                                );
+                            }
+                            else {
+                                // æ ‡å‡† URLï¼Œç›´æ¥åŠ å…¥ç»“æœ
+                                std::cout << "æ¥æ”¶åˆ°æ ‡å‡†å›¾ç‰‡ URL: " << imageUrl << std::endl;
                                 nlohmann::json imageObj;
                                 imageObj["data"] = imageUrl;
                                 imagesArray.push_back(imageObj);
@@ -301,29 +305,47 @@ nlohmann::json CompletionHandler::processMessages(const nlohmann::json& messages
                         }
                     }
                 }
+
+                // ç­‰å¾…æ‰€æœ‰å¼‚æ­¥ä¸Šä¼ ä»»åŠ¡å®Œæˆï¼Œå¹¶æ”¶é›†è¿”å›çš„ URL
+                for (auto& fut : imageUploadFutures) {
+                    std::string uploadedUrl = fut.get();
+                    if (uploadedUrl.empty()) {
+                        throw std::runtime_error("å›¾ç‰‡ä¸Šä¼ å¤±è´¥ï¼Œè¯·ç¨åé‡è¯•ã€‚");
+                    }
+                    std::cout << "Base64 å›¾ç‰‡å·²ä¸Šä¼ ï¼ŒURL: " << uploadedUrl << std::endl;
+                    nlohmann::json imageObj;
+                    imageObj["data"] = uploadedUrl;
+                    imagesArray.push_back(imageObj);
+                }
+
+                // ç§»é™¤æ–‡æœ¬æœ«å°¾å¤šä½™çš„ç©ºæ ¼
                 if (!textContent.empty() && textContent.back() == ' ')
                     textContent.pop_back();
+
                 if (textContent.empty() && !messageHasImage) {
-                    std::cout << "ÒÆ³ıÄÚÈİÎª¿ÕµÄÏûÏ¢¡£" << std::endl;
+                    std::cout << "ç§»é™¤å†…å®¹ä¸ºç©ºçš„æ¶ˆæ¯ã€‚" << std::endl;
                     continue;
-                } else {
+                }
+                else {
                     processedMessage["content"] = textContent;
                     if (messageHasImage)
                         processedMessage["images"] = imagesArray;
                 }
-            } else if (contentValue.is_string()) {
+            }
+            else if (contentValue.is_string()) {
                 std::string contentStr = trim(contentValue.get<std::string>());
                 if (contentStr.empty()) {
-                    std::cout << "ÒÆ³ıÄÚÈİÎª¿ÕµÄÏûÏ¢¡£" << std::endl;
+                    std::cout << "ç§»é™¤å†…å®¹ä¸ºç©ºçš„æ¶ˆæ¯ã€‚" << std::endl;
                     continue;
                 }
                 processedMessage["content"] = contentStr;
-            } else {
-                std::cout << "ÒÆ³ı·ÇÔ¤ÆÚÀàĞÍµÄÏûÏ¢¡£" << std::endl;
+            }
+            else {
+                std::cout << "ç§»é™¤éé¢„æœŸç±»å‹çš„æ¶ˆæ¯ã€‚" << std::endl;
                 continue;
             }
         }
-        // system ÏûÏ¢ÖĞ¿ÉÄÜ×·¼ÓÒ»Ğ©Ç°ÖÃÌáÊ¾
+        // system æ¶ˆæ¯ä¸­å¯èƒ½è¿½åŠ ä¸€äº›å‰ç½®æç¤º
         if (role == "system" && processedMessage.contains("content")) {
             std::string systemContent = processedMessage["content"];
             if (systemContent.find("This dialog contains a call to the web search function") == std::string::npos) {
@@ -338,23 +360,24 @@ nlohmann::json CompletionHandler::processMessages(const nlohmann::json& messages
     return processedMessages;
 }
 
-// ºËĞÄ£ºÁ÷Ê½ÏìÓ¦£¬²ÉÓÃ curl + chunked_content_provider£¬ÊÕµ½Ò»ĞĞ¾Í·¢ËÍÒ»ĞĞ
-void CompletionHandler::handleStreamResponse(const httplib::Request& req, httplib::Response& res,const json& requestJson) {
+
+// æ ¸å¿ƒï¼šæµå¼å“åº”ï¼Œé‡‡ç”¨ curl + chunked_content_providerï¼Œæ”¶åˆ°ä¸€è¡Œå°±å‘é€ä¸€è¡Œ
+void CompletionHandler::handleStreamResponse(const httplib::Request& req, httplib::Response& res, const json& requestJson) {
     res.set_header("Access-Control-Allow-Origin", "*");
     res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.set_header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.set_header("Connection", "keep-alive");
 
-    // ¹¹ÔìÇëÇóÍ·
+    // æ„é€ è¯·æ±‚å¤´
     struct curl_slist* headers = getHeaderManager().getApiHeaders(HeaderManager::ApiType::CHAT_COMPLETIONS, requestJson);
-    // ´òÓ¡»òÈÕÖ¾
+    // æ‰“å°æˆ–æ—¥å¿—
     std::string jsonBody = requestJson.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace);
     std::cout << "Stream request JSON size: " << jsonBody.size() << " bytes" << std::endl;
 
-    // ¹²Ïí»º³åÇø£¬ÓÃÓÚÉú²úÕß-Ïû·ÑÕß
+    // å…±äº«ç¼“å†²åŒºï¼Œç”¨äºç”Ÿäº§è€…-æ¶ˆè´¹è€…
     auto streamBuffer = std::make_shared<StreamBuffer>();
 
-    // Éú²úÕßÏß³Ì£º·¢Æğ curl ÇëÇó£¬²»¶Ï°Ñ¶Áµ½µÄÊı¾İ°´ĞĞĞ´Èë streamBuffer
+    // ç”Ÿäº§è€…çº¿ç¨‹ï¼šå‘èµ· curl è¯·æ±‚ï¼Œä¸æ–­æŠŠè¯»åˆ°çš„æ•°æ®æŒ‰è¡Œå†™å…¥ streamBuffer
     std::thread curlThread([headers, jsonBody, streamBuffer, this]() {
         CURL* curl = createCompletionConnection(headers, jsonBody);
         if (!curl) {
@@ -376,7 +399,7 @@ void CompletionHandler::handleStreamResponse(const httplib::Request& req, httpli
 
         {
             std::lock_guard<std::mutex> lock(streamBuffer->mtx);
-            // Èç¹û»¹ÓĞÃ»´¦ÀíÍêµÄ partialBuffer£¬Ò²¿É°ÑËüµ±×÷Ò»ĞĞ
+            // å¦‚æœè¿˜æœ‰æ²¡å¤„ç†å®Œçš„ partialBufferï¼Œä¹Ÿå¯æŠŠå®ƒå½“ä½œä¸€è¡Œ
             if (!streamBuffer->partialBuffer.empty()) {
                 streamBuffer->lines.push(streamBuffer->partialBuffer);
                 streamBuffer->partialBuffer.clear();
@@ -384,45 +407,45 @@ void CompletionHandler::handleStreamResponse(const httplib::Request& req, httpli
             streamBuffer->finished = true;
             streamBuffer->cv.notify_all();
         }
-    });
+        });
     curlThread.detach();
 
-    // Ïû·ÑÕß£ºÆôÓÃ chunked_content_provider£¬Ò»´Î´Îµ¯³ö¶ÓÁĞÀïµÄĞĞ²¢·¢¸ø¿Í»§¶Ë
+    // æ¶ˆè´¹è€…ï¼šå¯ç”¨ chunked_content_providerï¼Œä¸€æ¬¡æ¬¡å¼¹å‡ºé˜Ÿåˆ—é‡Œçš„è¡Œå¹¶å‘ç»™å®¢æˆ·ç«¯
     res.set_header("Content-Type", "text/event-stream; charset=utf-8");
     res.set_chunked_content_provider("text/event-stream",
         [streamBuffer, requestJson](size_t /*offset*/, httplib::DataSink& sink) {
             while (true) {
                 std::unique_lock<std::mutex> lock(streamBuffer->mtx);
-                // µÈµ½ÓĞÊı¾İ»òÕß½áÊø
-                streamBuffer->cv.wait(lock, [&](){
+                // ç­‰åˆ°æœ‰æ•°æ®æˆ–è€…ç»“æŸ
+                streamBuffer->cv.wait(lock, [&]() {
                     return !streamBuffer->lines.empty() || streamBuffer->finished;
-                });
+                    });
 
-                // Ò»´Î¿ÉÄÜÓĞ¶àĞĞ
+                // ä¸€æ¬¡å¯èƒ½æœ‰å¤šè¡Œ
                 while (!streamBuffer->lines.empty()) {
                     std::string line = streamBuffer->lines.front();
                     streamBuffer->lines.pop();
                     lock.unlock();
 
-                    // Èç¹ûĞĞÒÔ "data: " ¿ªÍ·£¬ÔòËµÃ÷ÊÇÒ»Ìõ SSE Êı¾İ
+                    // å¦‚æœè¡Œä»¥ "data: " å¼€å¤´ï¼Œåˆ™è¯´æ˜æ˜¯ä¸€æ¡ SSE æ•°æ®
                     if (line.rfind("data: ", 0) == 0) {
                         std::string dataPart = trim(line.substr(6));
-                        // Èç¹ûÊÇ [DONE] ¾Í½áÊø
+                        // å¦‚æœæ˜¯ [DONE] å°±ç»“æŸ
                         if (dataPart == "[DONE]") {
                             std::string doneMsg = "data: [DONE]\n\n";
                             sink.write(doneMsg.c_str(), doneMsg.size());
                             sink.done();
                             return true;
                         }
-                        // ÕâÀï¿É½âÎö JSON£¬¿´ÊÇ·ñÒª¹ıÂË
+                        // è¿™é‡Œå¯è§£æ JSONï¼Œçœ‹æ˜¯å¦è¦è¿‡æ»¤
                         try {
                             json j = json::parse(dataPart);
                             if (shouldFilterOut(j)) {
-                                // ¹ıÂË²»ÏëÒªµÄÏûÏ¢
+                                // è¿‡æ»¤ä¸æƒ³è¦çš„æ¶ˆæ¯
                                 lock.lock();
                                 continue;
                             }
-                            // Èç¹û°üº¬ web ËÑË÷½á¹û£¬¿ÉÒÔ´¦ÀíºóÔÙÊä³ö
+                            // å¦‚æœåŒ…å« web æœç´¢ç»“æœï¼Œå¯ä»¥å¤„ç†åå†è¾“å‡º
                             if (j.contains("data") && j["data"].contains("web")) {
                                 json webData = j["data"]["web"];
                                 if (webData.contains("sources")) {
@@ -433,7 +456,7 @@ void CompletionHandler::handleStreamResponse(const httplib::Request& req, httpli
                                         std::string url = source.value("url", "");
                                         content += "\n### " + title + "\n" + url + "\n";
                                     }
-                                    // ÔÙ¹¹ÔìÒ»¸ö SSE json
+                                    // å†æ„é€ ä¸€ä¸ª SSE json
                                     json newJson;
                                     newJson["id"] = "chatcmpl-" + std::to_string(std::time(nullptr));
                                     newJson["object"] = "chat.completion.chunk";
@@ -455,19 +478,20 @@ void CompletionHandler::handleStreamResponse(const httplib::Request& req, httpli
                                     continue;
                                 }
                             }
-                        } catch (std::exception &e) {
-                            std::cerr << "JSON½âÎö´íÎó: " << e.what() << std::endl;
+                        }
+                        catch (std::exception& e) {
+                            std::cerr << "JSONè§£æé”™è¯¯: " << e.what() << std::endl;
                         }
                     }
 
-                    // ½«ÆÕÍ¨ĞĞ»ò¡°½âÎöºóÒÀÈ»Òª·¢ËÍ¸ø¿Í»§¶Ë¡±µÄĞĞÊä³ö
+                    // å°†æ™®é€šè¡Œæˆ–â€œè§£æåä¾ç„¶è¦å‘é€ç»™å®¢æˆ·ç«¯â€çš„è¡Œè¾“å‡º
                     std::string output = line + "\n\n";
                     sink.write(output.c_str(), output.size());
 
                     lock.lock();
                 }
 
-                // ÈôÒÑ½áÊøÇÒ¶ÓÁĞ¿Õ£¬½áÊø
+                // è‹¥å·²ç»“æŸä¸”é˜Ÿåˆ—ç©ºï¼Œç»“æŸ
                 if (streamBuffer->finished && streamBuffer->lines.empty()) {
                     sink.done();
                     return true;
@@ -477,7 +501,7 @@ void CompletionHandler::handleStreamResponse(const httplib::Request& req, httpli
     );
 }
 
-// ·ÇÁ÷Ê½ÏìÓ¦£ºÒ»´ÎÄÃÍê
+// éæµå¼å“åº”ï¼šä¸€æ¬¡æ‹¿å®Œ
 void CompletionHandler::handleNonStreamResponse(const httplib::Request& req, httplib::Response& res, const json& requestJson) {
     res.set_header("Access-Control-Allow-Origin", "*");
     res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -509,16 +533,16 @@ void CompletionHandler::handleNonStreamResponse(const httplib::Request& req, htt
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
 
-    // ½âÎö SSE ÄÚÈİ£¬Æ´³É×îÖÕÍêÕûÊä³ö
+    // è§£æ SSE å†…å®¹ï¼Œæ‹¼æˆæœ€ç»ˆå®Œæ•´è¾“å‡º
     auto [aggregatedContent, completionTokens] = aggregateSSEResponse(sseResponse);
     std::string finalJson = buildFinalJson(aggregatedContent, completionTokens, requestJson);
 
-    std::cout << "×îÖÕÏìÓ¦ JSON:\n" << finalJson << std::endl;
+    std::cout << "æœ€ç»ˆå“åº” JSON:\n" << finalJson << std::endl;
     res.set_header("Content-Type", "application/json; charset=utf-8");
     res.set_content(finalJson, "application/json; charset=utf-8");
 }
 
-// ´¦Àí POST ÇëÇó£ºÅĞ¶ÏÊÇ·ñÒªÁ÷Ê½
+// å¤„ç† POST è¯·æ±‚ï¼šåˆ¤æ–­æ˜¯å¦è¦æµå¼
 void CompletionHandler::handlePostRequest(const httplib::Request& req, httplib::Response& res) {
     res.set_header("Access-Control-Allow-Origin", "*");
     res.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -528,7 +552,8 @@ void CompletionHandler::handlePostRequest(const httplib::Request& req, httplib::
     json requestJson;
     try {
         requestJson = json::parse(req.body);
-    } catch (std::exception& e) {
+    }
+    catch (std::exception& e) {
         sendError(res, "Invalid JSON in request body", 400);
         return;
     }
@@ -541,17 +566,17 @@ void CompletionHandler::handlePostRequest(const httplib::Request& req, httplib::
     json messages = requestJson.value("messages", json::array());
     json processedMessages = processMessages(messages);
     if (processedMessages.empty()) {
-        sendError(res, "ËùÓĞÏûÏ¢µÄÄÚÈİ¾ùÎª¿Õ¡£", 400);
+        sendError(res, "æ‰€æœ‰æ¶ˆæ¯çš„å†…å®¹å‡ä¸ºç©ºã€‚", 400);
         return;
     }
 
-    // ´¦ÀíÄ£ĞÍÃû¡¢¶ÔÆëÄã×Ô¼ºµÄÂß¼­
+    // å¤„ç†æ¨¡å‹åã€å¯¹é½ä½ è‡ªå·±çš„é€»è¾‘
     if (model == "claude-3.5-sonnet")
         model = "claude-3-5-sonnet";
     else if (model == "gpt 4o")
         model = "gpt-4o";
 
-    // ¹¹Ôì×îÖÕÇëÇóµÄ JSON
+    // æ„é€ æœ€ç»ˆè¯·æ±‚çš„ JSON
     json newRequestJson;
     newRequestJson["function_image_gen"] = true;
     newRequestJson["function_web_search"] = true;
@@ -563,23 +588,26 @@ void CompletionHandler::handlePostRequest(const httplib::Request& req, httplib::
 
     std::cout << "Modified Request JSON:\n" << newRequestJson.dump(4) << "\n" << std::endl;
 
-    // Á÷Ê½»¹ÊÇ·ÇÁ÷Ê½
-    //std::string token = "";  // ÈôĞèÒª token£¬Çë×ÔĞĞ»ñÈ¡
+    // æµå¼è¿˜æ˜¯éæµå¼
+    //std::string token = "";  // è‹¥éœ€è¦ tokenï¼Œè¯·è‡ªè¡Œè·å–
     if (isStream)
-        handleStreamResponse(req, res,  newRequestJson);
+        handleStreamResponse(req, res, newRequestJson);
     else
-        handleNonStreamResponse(req, res,  newRequestJson);
+        handleNonStreamResponse(req, res, newRequestJson);
 }
 
-// Í³Ò»¶ÔÍâ handle
+// ç»Ÿä¸€å¯¹å¤– handle
 void CompletionHandler::handle(const httplib::Request& req, httplib::Response& res) {
     if (req.method == "OPTIONS") {
         handleOptionsRequest(res);
-    } else if (req.method == "GET") {
+    }
+    else if (req.method == "GET") {
         handleGetRequest(res);
-    } else if (req.method == "POST") {
+    }
+    else if (req.method == "POST") {
         handlePostRequest(req, res);
-    } else {
+    }
+    else {
         sendError(res, "Method Not Allowed", 405);
     }
 }
