@@ -13,6 +13,8 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"sync"
+
 	//"mime/multipart"
 	"net"
 	"net/http"
@@ -29,8 +31,8 @@ import (
 
 // Constants and Global Variables
 var (
-	models = []string{"deepseek-r1", "gpt-4o", "gpt-4o-mini", "claude", "claude-3-haiku", "claude-3-5-sonnet"}
-	initialPort = 8080 
+	models      = []string{"deepseek-r1", "gpt-4o", "gpt-4o-mini", "claude", "claude-3-haiku", "claude-3-5-sonnet"}
+	initialPort = 8080
 
 	client = &http.Client{
 		Transport: &http.Transport{
@@ -55,15 +57,15 @@ func sendError(w http.ResponseWriter, statusCode int, message string) {
 
 // Utility function to build HTTP requests to external API
 
-func buildHttpRequestNew(modifiedRequestBody string, tmpToken string, date string) (*http.Request, error) {
-	req, err := http.NewRequest("POST", "https://api.chaton.ai/chats/stream", strings.NewReader(modifiedRequestBody))
+func buildHttpRequestNew(modifiedRequestBody string, tmpToken string, date string, source string) (*http.Request, error) {
+	req, err := http.NewRequest("POST", "https://api.chaton.ai"+source, strings.NewReader(modifiedRequestBody))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Date", date)
-	req.Header.Set("Client-time-zone", "-04:00")
+	req.Header.Set("Client-time-zone", "-05:00")
 	req.Header.Set("Authorization", tmpToken)
-	req.Header.Set("User-Agent", os.Getenv("USER_AGENT"))
+	req.Header.Set("User-Agent", "ChatOn_Android/1.66.536")
 	req.Header.Set("Accept-Language", "en-US")
 	req.Header.Set("X-Cl-Options", "hb")
 	req.Header.Set("Content-Type", "application/json; charset=UTF-8")
@@ -73,6 +75,18 @@ func buildHttpRequestNew(modifiedRequestBody string, tmpToken string, date strin
 
 // Handler for /v1/chat/completions
 func completionHandler(w http.ResponseWriter, r *http.Request) {
+	//client := &http.Client{}
+	// 设置 HTTP 代理地址
+	//proxyStr := "http://127.0.0.1:5257"
+	//proxyURL, err := url.Parse(proxyStr)
+	//if err != nil {
+	//	log.Println("代理地址解析错误:", err)
+	//	sendError(w, http.StatusInternalServerError, "代理地址配置错误")
+	//	return
+	//}
+
+	// 使用自定义 Transport 配置代理
+
 	// Set CORS headers
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
@@ -129,7 +143,7 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 	model, _ := getString(requestJson, "model", "gpt-4o")
 	isStream, _ := getBool(requestJson, "stream", false)
 	hasImage := false
-	var imageURL string
+	//var imageURL string
 
 	if ok {
 		var newMessages []interface{}
@@ -145,6 +159,8 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+
+		// 如果不存在 system 消息，在开头添加一个
 		if !hasSystemMessage {
 			systemMessage := map[string]interface{}{
 				"role":    "system",
@@ -164,6 +180,10 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 				switch contentTyped := content.(type) {
 				case []interface{}:
 					var msgContentBuilder strings.Builder
+					var wg sync.WaitGroup
+					// 使用带缓冲的 channel 收集上传后的图片 URL
+					imageURLChan := make(chan string, len(contentTyped))
+
 					for _, contentItem := range contentTyped {
 						contentMap, ok := contentItem.(map[string]interface{})
 						if !ok {
@@ -178,6 +198,7 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 							} else if msgType == "image_url" {
 								if imageURLMap, exists := contentMap["image_url"].(map[string]interface{}); exists {
 									if imageURLStr, exists := imageURLMap["url"].(string); exists {
+										// 如果是 base64 格式的图片，则异步上传
 										if strings.HasPrefix(imageURLStr, "data:image/") {
 											parts := strings.Split(imageURLStr, "base64,")
 											if len(parts) != 2 {
@@ -198,44 +219,47 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 													extension = strings.Split(partsExt[1], ";")[0]
 												}
 											}
-											uploadedURL, err := uploadImage(imageBytes, extension)
-											if err != nil {
-												log.Println("图片上传失败:", err)
-												continue
-											}
-											imageURL = uploadedURL
-											hasImage = true
-											log.Printf("图片已上传, 可访问 URL: %s\n", imageURL)
-											// 添加上传后的图片 URL 到消息
-											imagesArray := []map[string]string{
-												{
-													"data": imageURL,
-												},
-											}
-											message["images"] = imagesArray
+											wg.Add(1)
+											// 异步上传图片
+											go func(imgBytes []byte, ext string) {
+												defer wg.Done()
+												uploadedURL, err := uploadImage(imgBytes, ext)
+												if err != nil {
+													log.Println("图片上传失败:", err)
+													return
+												}
+												log.Printf("图片已上传, 可访问 URL: %s\n", uploadedURL)
+												imageURLChan <- uploadedURL
+											}(imageBytes, extension)
 										} else {
-											// 处理标准图片 URL
-											imageURL = imageURLStr
-											hasImage = true
-											log.Printf("接收到标准图片 URL: %s\n", imageURL)
-											imagesArray := []map[string]string{
-												{
-													"data": imageURL,
-												},
-											}
-											message["images"] = imagesArray
+											// 如果是标准 URL，则直接添加
+											log.Printf("接收到标准图片 URL: %s\n", imageURLStr)
+											imageURLChan <- imageURLStr
 										}
 									}
 								}
 							}
 						}
 					}
-					// 更新消息内容
+					// 等待所有图片上传完成
+					wg.Wait()
+					close(imageURLChan)
+
+					// 收集所有图片 URL
+					var imagesArray []map[string]string
+					for url := range imageURLChan {
+						imagesArray = append(imagesArray, map[string]string{"data": url})
+					}
+					if len(imagesArray) > 0 {
+						message["images"] = imagesArray
+					}
+
 					extractedContent := strings.TrimSpace(msgContentBuilder.String())
-					if extractedContent == "" && !hasImage {
+					if extractedContent == "" && len(imagesArray) == 0 {
 						// 跳过内容为空的消息
 						continue
 					} else {
+						// 如果消息角色为 system，则注入系统提示（仅在内容中不包含该提示时）
 						if strings.ToLower(role) == "system" {
 							if !strings.Contains(extractedContent, systemPrompt) {
 								extractedContent = systemPrompt + "\n" + extractedContent
@@ -250,23 +274,19 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 					if contentStr == "" {
 						continue
 					} else {
-						// 同理处理 system 消息
 						if strings.ToLower(role) == "system" {
 							if !strings.Contains(contentStr, systemPrompt) {
 								contentStr = systemPrompt + "\n" + contentStr
 							}
 						} else if strings.ToLower(role) == "user" {
-							// 处理用户消息中的URL
+							// 处理用户消息中的 URL
 							re := regexp.MustCompile(`https?://[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+`)
 							urls := re.FindAllString(contentStr, -1)
-
-							// 如果找到URL，获取内容
 							for _, url := range urls {
 								log.Printf("检测到URL: %s\n", url)
 								if fetchedContent, exists := urlContents[url]; exists {
 									contentStr = contentStr + "\n\n" + fetchedContent
 								} else {
-									// 获取URL内容并等待响应
 									fetchedContent := fetchURL(url)
 									urlContents[url] = fetchedContent
 									contentStr = contentStr + "\n\n" + fetchedContent
@@ -274,13 +294,14 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 							}
 						}
 						message["content"] = contentStr
-						log.Printf("保留的内容: %s\n", contentStr)
+						//log.Printf("保留的内容: %s\n", contentStr)
 						contentBuilder.WriteString(contentStr)
 					}
 				default:
 					continue
 				}
 			}
+
 			newMessages = append(newMessages, message)
 		}
 		requestJson["messages"] = newMessages
@@ -324,44 +345,80 @@ func completionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	modifiedRequestBody := string(modifiedRequestBodyBytes)
 	log.Printf("修改后的请求 JSON: %s\n", modifiedRequestBodyBytes)
-	
+
 	formattedDate := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-	token, err := bearerGenerator.GetBearerNew(modifiedRequestBody, "/chats/stream", formattedDate, "POST")
-	if err != nil {
-		sendError(w, http.StatusInternalServerError, "生成Bearer Token时发生错误")
-		return
-	}
 
-	// Build external API request
-	apiReq, err := buildHttpRequestNew(modifiedRequestBody, token, formattedDate)
-	if err != nil {
-		sendError(w, http.StatusInternalServerError, "构建外部API请求时发生错误")
-		return
-	}
-
-	// Send request to external API
-	resp, err := client.Do(apiReq)
-	if err != nil {
-		sendError(w, http.StatusInternalServerError, "请求外部API时发生错误")
-		return
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
-		if err != nil {
-
-		}
-	}(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		sendError(w, resp.StatusCode, fmt.Sprintf("API 错误: %d", resp.StatusCode))
-		return
-	}
+	// 生成上传图片的 Bearer Token，传入空字节数组、上传路径 "/storage/upload" 以及 HTTP 方法 "POST"
 
 	// Handle response based on stream and image presence
 	if isStream {
+		source := "/chats/stream"
+		token, err := bearerGenerator.GetBearerNew(modifiedRequestBody, source, formattedDate, "POST")
+		if err != nil {
+			sendError(w, http.StatusInternalServerError, "生成Bearer Token时发生错误")
+			return
+		}
+
+		// Build external API request
+		apiReq, err := buildHttpRequestNew(modifiedRequestBody, token, formattedDate, source)
+		if err != nil {
+			sendError(w, http.StatusInternalServerError, "构建外部API请求时发生错误")
+			return
+		}
+
+		// Send request to external API
+		resp, err := client.Do(apiReq)
+		if err != nil {
+			sendError(w, http.StatusInternalServerError, "请求外部API时发生错误")
+			return
+		}
+		defer func(Body io.ReadCloser) {
+			err := Body.Close()
+			if err != nil {
+
+			}
+		}(resp.Body)
+
+		if resp.StatusCode != http.StatusOK {
+			sendError(w, resp.StatusCode, fmt.Sprintf("API 错误: %d", resp.StatusCode))
+			return
+		}
+
 		handleStreamResponse(w, resp)
 	} else {
-		handleNormalResponse(w, resp, model)
+		source := "/chats/text"
+		token, err := bearerGenerator.GetBearerNew(modifiedRequestBody, source, formattedDate, "POST")
+		if err != nil {
+			sendError(w, http.StatusInternalServerError, "生成Bearer Token时发生错误")
+			return
+		}
+
+		// Build external API request
+		apiReq, err := buildHttpRequestNew(modifiedRequestBody, token, formattedDate, source)
+		if err != nil {
+			sendError(w, http.StatusInternalServerError, "构建外部API请求时发生错误")
+			return
+		}
+
+		// Send request to external API
+		resp, err := client.Do(apiReq)
+		if err != nil {
+			sendError(w, http.StatusInternalServerError, "请求外部API时发生错误")
+			return
+		}
+		defer func(Body io.ReadCloser) {
+			err := Body.Close()
+			if err != nil {
+
+			}
+		}(resp.Body)
+
+		if resp.StatusCode != http.StatusOK {
+			sendError(w, resp.StatusCode, fmt.Sprintf("API 错误: %d", resp.StatusCode))
+			return
+		}
+
+		handleNormalResponse(w, resp)
 	}
 }
 
@@ -434,8 +491,8 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 				"role":    "user",
 			},
 		},
-		"model":  "gpt-4o",         
-		"source": "chat/pro_image", 
+		"model":  "gpt-4o",         // 固定 model
+		"source": "chat/pro_image", // 固定 source
 	}
 
 	modifiedRequestBodyBytes, err := json.Marshal(textToImageJson)
@@ -456,9 +513,9 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 	//// Build external API request
 	//apiReq, err := buildHttpRequest(modifiedRequestBody, tmpToken)
 	formattedDate := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-
+	source := "/chats/stream"
 	// 生成上传图片的 Bearer Token，传入空字节数组、上传路径 "/storage/upload" 以及 HTTP 方法 "POST"
-	token, err := bearerGenerator.GetBearerNew(modifiedRequestBody, "/chats/stream", formattedDate, "POST")
+	token, err := bearerGenerator.GetBearerNew(modifiedRequestBody, source, formattedDate, "POST")
 	fmt.Printf("%s", token)
 	if err != nil {
 		sendError(w, http.StatusInternalServerError, "生成Bearer Token时发生错误")
@@ -467,7 +524,7 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Build external API request
 
-	apiReq, err := buildHttpRequestNew(modifiedRequestBody, token, formattedDate)
+	apiReq, err := buildHttpRequestNew(modifiedRequestBody, token, formattedDate, source)
 	if err != nil {
 		sendError(w, http.StatusInternalServerError, "构建外部API请求时发生错误")
 		return
@@ -609,109 +666,148 @@ func textToImageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// Handle Normal Response
-// handleNormalResponse 处理非流式响应并构建 OpenAI 风格的 JSON 响应
-func handleNormalResponse(w http.ResponseWriter, resp *http.Response, model string) {
-	bodyBytes, err := ioutil.ReadAll(resp.Body)
+func handleNormalResponse(w http.ResponseWriter, resp *http.Response) {
+	var reader io.ReadCloser
+	var err error
+
+	// 检查是否是 gzip 压缩
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		reader, err = gzip.NewReader(resp.Body)
+		if err != nil {
+			sendError(w, http.StatusInternalServerError, "解压响应失败")
+			return
+		}
+		defer reader.Close()
+	} else {
+		reader = resp.Body
+	}
+
+	// 读取响应体
+	bodyBytes, err := ioutil.ReadAll(reader)
 	if err != nil {
-		sendError(w, http.StatusInternalServerError, "读取API响应时发生错误")
+		sendError(w, http.StatusInternalServerError, "读取API响应失败")
 		return
 	}
 
-	// 解析 SSE 行
-	scanner := bufio.NewScanner(bytes.NewReader(bodyBytes))
-	var contentBuilder strings.Builder
-	completionTokens := 0
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "data: ") {
-			data := strings.TrimSpace(line[6:])
-			if data == "[DONE]" {
-				break
-			}
-
-			var sseJson map[string]interface{}
-			if err := json.Unmarshal([]byte(data), &sseJson); err != nil {
-				log.Println("JSON解析错误:", err)
-				continue
-			}
-
-			// 检查是否包含 'choices' 数组
-			if choices, exists := sseJson["choices"].([]interface{}); exists {
-				for _, choice := range choices {
-					if choiceMap, ok := choice.(map[string]interface{}); ok {
-						if delta, exists := choiceMap["delta"].(map[string]interface{}); exists {
-							if content, exists := delta["content"].(string); exists {
-								contentBuilder.WriteString(content)
-								completionTokens += len(content) // 简单估计 token 数
-								print(content)
-							}
-						}
-					}
-				}
-			}
+	// 设置响应头
+	for key, values := range resp.Header {
+		for _, value := range values {
+			w.Header().Add(key, value)
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		log.Println("读取响应体错误:", err)
-		sendError(w, http.StatusInternalServerError, "读取响应体时发生错误")
-		return
-	}
-
-	// 构建 OpenAI API 风格的响应 JSON
-	openAIResponse := map[string]interface{}{
-		"id":      "chatcmpl-" + strings.ReplaceAll(uuid.New().String(), "-", ""),
-		"object":  "chat.completion",
-		"created": getUnixTime(),
-		"model":   model,
-		"choices": []interface{}{
-			map[string]interface{}{
-				"index":         0,
-				"message":       map[string]interface{}{"role": "assistant", "content": contentBuilder.String()},
-				"refusal":       nil, // 添加 'refusal' 字段
-				"logprobs":      nil, // 添加 'logprobs' 字段
-				"finish_reason": "stop",
-			},
-		},
-		"usage": map[string]interface{}{
-			"prompt_tokens":     16, // 示例值，可以根据实际计算
-			"completion_tokens": completionTokens,
-			"total_tokens":      16 + completionTokens,
-			"prompt_tokens_details": map[string]interface{}{
-				"cached_tokens": 0,
-				"audio_tokens":  0,
-			},
-			"completion_tokens_details": map[string]interface{}{
-				"reasoning_tokens":           0,
-				"audio_tokens":               0,
-				"accepted_prediction_tokens": 0,
-				"rejected_prediction_tokens": 0,
-			},
-		},
-		"system_fingerprint": "fp_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12],
-	}
-
-	// 构建 JSON 响应体
-	responseBody, err := json.Marshal(openAIResponse)
-	if err != nil {
-		sendError(w, http.StatusInternalServerError, "构建响应时发生错误")
-		return
-	}
+	w.Header().Set("Content-Type", "application/json")
 
 	// 发送响应
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	_, err = w.Write(responseBody)
+	w.WriteHeader(resp.StatusCode)
+	_, err = w.Write(bodyBytes)
 	if err != nil {
 		log.Println("写入响应失败:", err)
 		return
 	}
-
-	// 日志记录接收到的内容
-	log.Printf("从 API 接收到的内容: %s\n", contentBuilder.String())
 }
+
+// handleNormalResponse 处理非流式响应并构建 OpenAI 风格的 JSON 响应
+//func handleNormalResponse(w http.ResponseWriter, resp *http.Response, model string) {
+//	bodyBytes, err := ioutil.ReadAll(resp.Body)
+//	if err != nil {
+//		sendError(w, http.StatusInternalServerError, "读取API响应时发生错误")
+//		return
+//	}
+//
+//	// 解析 SSE 行
+//	scanner := bufio.NewScanner(bytes.NewReader(bodyBytes))
+//	var contentBuilder strings.Builder
+//	completionTokens := 0
+//
+//	for scanner.Scan() {
+//		line := scanner.Text()
+//		if strings.HasPrefix(line, "data: ") {
+//			data := strings.TrimSpace(line[6:])
+//			if data == "[DONE]" {
+//				break
+//			}
+//
+//			var sseJson map[string]interface{}
+//			if err := json.Unmarshal([]byte(data), &sseJson); err != nil {
+//				log.Println("JSON解析错误:", err)
+//				continue
+//			}
+//
+//			// 检查是否包含 'choices' 数组
+//			if choices, exists := sseJson["choices"].([]interface{}); exists {
+//				for _, choice := range choices {
+//					if choiceMap, ok := choice.(map[string]interface{}); ok {
+//						if delta, exists := choiceMap["delta"].(map[string]interface{}); exists {
+//							if content, exists := delta["content"].(string); exists {
+//								contentBuilder.WriteString(content)
+//								completionTokens += len(content) // 简单估计 token 数
+//								print(content)
+//							}
+//						}
+//					}
+//				}
+//			}
+//		}
+//	}
+//
+//	if err := scanner.Err(); err != nil {
+//		log.Println("读取响应体错误:", err)
+//		sendError(w, http.StatusInternalServerError, "读取响应体时发生错误")
+//		return
+//	}
+//
+//	// 构建 OpenAI API 风格的响应 JSON
+//	openAIResponse := map[string]interface{}{
+//		"id":      "chatcmpl-" + strings.ReplaceAll(uuid.New().String(), "-", ""),
+//		"object":  "chat.completion",
+//		"created": getUnixTime(),
+//		"model":   model,
+//		"choices": []interface{}{
+//			map[string]interface{}{
+//				"index":         0,
+//				"message":       map[string]interface{}{"role": "assistant", "content": contentBuilder.String()},
+//				"refusal":       nil, // 添加 'refusal' 字段
+//				"logprobs":      nil, // 添加 'logprobs' 字段
+//				"finish_reason": "stop",
+//			},
+//		},
+//		"usage": map[string]interface{}{
+//			"prompt_tokens":     16, // 示例值，可以根据实际计算
+//			"completion_tokens": completionTokens,
+//			"total_tokens":      16 + completionTokens,
+//			"prompt_tokens_details": map[string]interface{}{
+//				"cached_tokens": 0,
+//				"audio_tokens":  0,
+//			},
+//			"completion_tokens_details": map[string]interface{}{
+//				"reasoning_tokens":           0,
+//				"audio_tokens":               0,
+//				"accepted_prediction_tokens": 0,
+//				"rejected_prediction_tokens": 0,
+//			},
+//		},
+//		"system_fingerprint": "fp_" + strings.ReplaceAll(uuid.New().String(), "-", "")[:12],
+//	}
+//
+//	// 构建 JSON 响应体
+//	responseBody, err := json.Marshal(openAIResponse)
+//	if err != nil {
+//		sendError(w, http.StatusInternalServerError, "构建响应时发生错误")
+//		return
+//	}
+//
+//	// 发送响应
+//	w.Header().Set("Content-Type", "application/json")
+//	w.WriteHeader(http.StatusOK)
+//	_, err = w.Write(responseBody)
+//	if err != nil {
+//		log.Println("写入响应失败:", err)
+//		return
+//	}
+//
+//	// 日志记录接收到的内容
+//	log.Printf("从 API 接收到的内容: %s\n", contentBuilder.String())
+//}
 
 // shouldFilterOut 根据自定义逻辑过滤消息
 func shouldFilterOut(sseJson map[string]interface{}) bool {
@@ -986,7 +1082,7 @@ func fetchURL(url string) string {
 
 	req.Header.Set("Authorization", bearerToken)
 	req.Header.Set("Date", formattedDate)
-	req.Header.Set("Client-time-zone", "-04:00")
+	req.Header.Set("Client-time-zone", "-05:00")
 	req.Header.Set("User-Agent", os.Getenv("USER_AGENT"))
 	req.Header.Set("Accept-language", "en-US")
 	req.Header.Set("X-Cl-Options", "hb")
@@ -1165,9 +1261,9 @@ func uploadImage(imageBytes []byte, extension string) (string, error) {
 
 	// 格式化当前日期，格式类似 "2025-02-22T06:29:51Z"
 	formattedDate := time.Now().UTC().Format("2006-01-02T15:04:05Z")
-
+	source := "/storage/upload"
 	// 生成上传图片的 Bearer Token，传入空字节数组、上传路径 "/storage/upload" 以及 HTTP 方法 "POST"
-	uploadBearerToken, err := bearerGenerator.GetBearerNew("", "/storage/upload", formattedDate, "POST")
+	uploadBearerToken, err := bearerGenerator.GetBearerNew("", source, formattedDate, "POST")
 	if err != nil {
 		return "", fmt.Errorf("生成上传Bearer Token失败: %v", err)
 	}
@@ -1200,9 +1296,9 @@ func uploadImage(imageBytes []byte, extension string) (string, error) {
 		return "", err
 	}
 	req.Header.Set("Date", formattedDate)
-	req.Header.Set("Client-time-zone", "-04:00")
+	req.Header.Set("Client-time-zone", "-05:00")
 	req.Header.Set("Authorization", uploadBearerToken)
-	req.Header.Set("User-Agent", os.Getenv("USER_AGENT"))
+	req.Header.Set("User-Agent", "ChatOn_Android/1.66.536")
 	req.Header.Set("Accept-language", "en-US")
 	req.Header.Set("X-Cl-Options", "hb")
 	req.Header.Set("Content-Type", "multipart/form-data; boundary="+boundary)
@@ -1317,6 +1413,12 @@ func createHTTPServer(initialPort int) (*http.Server, int, error) {
 }
 
 func main() {
+	//判断是否使用代理，并打印信息
+	if http.ProxyFromEnvironment == nil {
+		log.Println("未使用代理")
+	} else {
+
+	}
 	// 解析命令行参数
 	if len(os.Args) > 1 {
 		p, err := strconv.Atoi(os.Args[1])
