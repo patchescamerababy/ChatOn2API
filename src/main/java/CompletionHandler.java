@@ -86,9 +86,8 @@ public class CompletionHandler implements HttpHandler {
 
                 boolean isStream = requestJson.optBoolean("stream", false);
                 boolean hasImage = false;
-                String imageFilename = null;
-                String imageURL = null;
 
+                boolean hasURL = false;
                 if (messages != null) {
                     JSONArray processedMessages = new JSONArray();
                     Iterator<Object> iterator = messages.iterator();
@@ -218,15 +217,17 @@ public class CompletionHandler implements HttpHandler {
                 }
 
                 model = model.toLowerCase();
-                // "claude-3.5-sonnet" to "claude-3-5-sonnet"
+                // "claude-3.5-sonnet" 转换为 "claude-3-5-sonnet"
                 model = model.equals("claude-3.5-sonnet") ? "claude-3-5-sonnet" : model;
-                // "gpt 4o" to "gpt-4o"
+                // "gpt 4o" 转换为 "gpt-4o"
                 model = model.equals("gpt 4o") ? "gpt-4o" : model;
+                model = model.startsWith("gpt") ? "gpt-4o" : model;
 
                 // 构建新的请求 JSON，替换相关内容
                 JSONObject newRequestJson = new JSONObject();
+
                 newRequestJson.put("function_image_gen", true);
-                newRequestJson.put("function_web_search", true);
+                newRequestJson.put("function_web_search", !hasURL);
                 newRequestJson.put("max_tokens", maxTokens);
                 newRequestJson.put("web_search_engine", "auto");
                 newRequestJson.put("model", model);
@@ -235,13 +236,14 @@ public class CompletionHandler implements HttpHandler {
 
                 String modifiedRequestBody = newRequestJson.toString();
                 System.out.println("_________\n修改后的请求 JSON: \n" + newRequestJson.toString(4) + "\n");
-                Request request = UtilsOkHttp.buildRequest(modifiedRequestBody.getBytes(StandardCharsets.UTF_8), BearerTokenGenerator.UA);
+                byte[] requestBodyBytes = modifiedRequestBody.getBytes(StandardCharsets.UTF_8);
 
-                // 根据是否有图片和是否为流式响应，调用不同的处理方法
                 if (isStream) {
+                    Request request = utils.utils.buildRequest(requestBodyBytes, "/chats/stream", BearerTokenGenerator.UA);
                     handleStreamResponse(exchange, request);
                 } else {
-                    handleNormalResponse(exchange, request, model);
+                    Request requestNormal = utils.utils.buildRequest(requestBodyBytes, "/chats/text", BearerTokenGenerator.UA);
+                    handleNormalResponse(exchange, requestNormal);
                 }
             } catch (Exception e) {
                 e.printStackTrace();
