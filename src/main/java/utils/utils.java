@@ -128,7 +128,23 @@ public class utils {
             return jsonResponse.getString("getUrl");
         }
     }
-
+    public static Request buildRequest(byte[] modifiedRequestBody,String path, String UA) {
+        String date = utils.getFormattedDate();
+        String tmpToken = BearerTokenGenerator.GetBearer(modifiedRequestBody, path, date, "POST");
+        return new Request.Builder()
+                .url("https://api.chaton.ai"+path)
+                .addHeader("Date", date)
+                .addHeader("Client-time-zone", utils.timeZone)
+                .addHeader("Authorization", tmpToken)
+                .addHeader("User-Agent", "ChatOn_Android/" + UA)
+                .addHeader("Accept-Language", "en-US")
+                .addHeader("X-Cl-Options", "hb")
+                .addHeader("Content-Type", "application/json; charset=UTF-8")
+                .addHeader("Accept-Encoding", "gzip")
+                .addHeader("Connection", "Keep-Alive")
+                .post(RequestBody.create(modifiedRequestBody, MediaType.get("application/json; charset=utf-8")))
+                .build();
+    }
     public static Proxy getSystemProxy() {
         String os = System.getProperty("os.name").toLowerCase();
         Proxy proxy = Proxy.NO_PROXY;
