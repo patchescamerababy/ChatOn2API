@@ -2,6 +2,7 @@ import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import okhttp3.*;
+import org.jetbrains.annotations.NotNull;
 import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -31,12 +32,12 @@ import static utils.utils.sendError;
 public class CompletionHandler implements HttpHandler {
 
     // OkHttp 客户端实例
-    private final OkHttpClient okHttpClient = UtilsOkHttp.okHttpClient;
+    private final OkHttpClient okHttpClient = utils.utils.getOkHttpClient();
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     @Override
-        public void handle(HttpExchange exchange) throws IOException {
+    public void handle(HttpExchange exchange) throws IOException {
         // 设置 CORS 头
         Headers headers = exchange.getResponseHeaders();
         headers.add("Access-Control-Allow-Origin", "*");
@@ -253,7 +254,6 @@ public class CompletionHandler implements HttpHandler {
 
     }
 
-
     /**
      * 处理流式响应
      *
@@ -269,7 +269,7 @@ public class CompletionHandler implements HttpHandler {
             }
 
             @Override
-            public void onResponse(Call call, Response response) throws IOException {
+            public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
                 try {
                     if (!response.isSuccessful()) {
                         sendError(exchange, "API 错误: " + response.code());
@@ -298,10 +298,10 @@ public class CompletionHandler implements HttpHandler {
                                 continue;
                             }
                             if (data.equals("[DONE]")) {
-                                System.out.println("最终内容: " + finalContent.toString());
+                                System.out.println("最终内容: \n" + finalContent.toString());
                                 if (finalContent.toString().contains("![Image](https://spc.unk/")) {
                                     System.out.println("图片模式: " + imageMarkdownBuffer.toString());
-                                    String extractedPath = extractPathFromMarkdown(finalContent.toString());
+                                    String extractedPath = utils.utils.extractPathFromMarkdown(finalContent.toString());
 
                                     if (extractedPath == null || extractedPath.isEmpty()) {
                                         System.out.println(" - 无法从 Markdown 中提取路径。");
@@ -387,12 +387,15 @@ public class CompletionHandler implements HttpHandler {
                                             os.write(newLine.getBytes(StandardCharsets.UTF_8));
                                             os.flush();
                                         }
-                                    } else if (json.has("choices")) {
+                                    } else if (json.has("choices") && !json.getString("model").startsWith("deepseek")) {
                                         JSONArray choices = json.getJSONArray("choices");
-                                        for (int i = 0; i < choices.length(); i++) {
-                                            JSONObject choice = choices.getJSONObject(i);
+//                                        for (int i = 0; i < choices.length(); i++) {
+                                            JSONObject choice = choices.getJSONObject(0);
                                             JSONObject delta = choice.optJSONObject("delta");
-                                            if (delta != null && delta.has("content")) {
+                                            if (delta != null && delta.has("content") ) {
+                                                if(delta.getString("content").equals("null")){
+                                                    continue;
+                                                }
                                                 String content = delta.getString("content");
                                                 finalContent.append(content);
                                                 if (content.contains("\n\n![") || content.contains("spc.unk")) {
@@ -409,10 +412,13 @@ public class CompletionHandler implements HttpHandler {
                                                 os.write((line + "\n\n").getBytes(StandardCharsets.UTF_8));
                                                 os.flush();
                                             }
-                                        }
+                                        //}
+                                    }else {
+                                        os.write((line + "\n\n").getBytes(StandardCharsets.UTF_8));
+                                        os.flush();
                                     }
                                 } catch (JSONException e) {
-                                    System.err.println("JSON解析错误: " + e.getMessage());
+                                    //System.err.println("JSON解析错误: " + e.getMessage());
                                     e.printStackTrace();
                                     System.out.println("data = " + data);
                                 }
@@ -457,155 +463,181 @@ public class CompletionHandler implements HttpHandler {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 24);
     }
 
+//    /**
+//     * 处理非流式响应
+//     *
+//     * @param exchange 当前的 HttpExchange 对象
+//     * @param request  构建好的 Request 对象
+//     * @param model    使用的模型名称
+//     */
+//    private void handleNormalResponse(HttpExchange exchange, Request request, String model) {
+//        okHttpClient.newCall(request).enqueue(new Callback() {
+//            @Override
+//            public void onFailure(Call call, IOException e) {
+//                e.printStackTrace();
+//                sendError(exchange, "请求失败: " + e.getMessage());
+//            }
+//
+//            @Override
+//            public void onResponse(Call call, Response response) throws IOException {
+//                try {
+//                    if (!response.isSuccessful()) {
+//                        sendError(exchange, "API 错误: " + response.code());
+//                        return;
+//                    }
+//
+//                    List<String> sseLines = new ArrayList<>();
+//                    BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream(), StandardCharsets.UTF_8));
+//                    String line;
+//                    while ((line = reader.readLine()) != null) {
+//                        sseLines.add(line);
+//                    }
+//
+//                    StringBuilder contentBuilder = new StringBuilder();
+//                    int completionTokens = 0;
+//
+//                    for (String sseLine : sseLines) {
+//                        if (sseLine.startsWith("data: ")) {
+//                            String data = sseLine.substring(6).trim();
+//                            if (data.equals("[DONE]")) {
+//                                break;
+//                            }
+//                            try {
+//                                JSONObject sseJson = new JSONObject(data);
+//
+//                                if (sseJson.has("choices")) {
+//                                    JSONArray choices = sseJson.getJSONArray("choices");
+//                                    for (int i = 0; i < choices.length(); i++) {
+//                                        JSONObject choice = choices.getJSONObject(i);
+//                                        if (choice.has("delta")) {
+//                                            JSONObject delta = choice.getJSONObject("delta");
+//                                            if (delta.has("content")) {
+//                                                String content = delta.getString("content");
+//                                                contentBuilder.append(content);
+//                                                completionTokens += countTokens(content);
+//                                            }
+//                                        }
+//                                    }
+//                                }
+//                            } catch (JSONException e) {
+//                                System.err.println("JSON解析错误: " + e.getMessage());
+//                                e.printStackTrace();
+//                            }
+//                        }
+//                    }
+//
+//                    JSONObject openAIResponse = new JSONObject();
+//                    openAIResponse.put("id", "chatcmpl-" + UUID.randomUUID().toString().replace("-", ""));
+//                    openAIResponse.put("object", "chat.completion");
+//                    openAIResponse.put("created", Instant.now().getEpochSecond());
+//                    openAIResponse.put("model", model);
+//
+//                    JSONArray choicesArray = new JSONArray();
+//                    JSONObject choiceObject = new JSONObject();
+//                    choiceObject.put("index", 0);
+//
+//                    JSONObject messageObject = new JSONObject();
+//                    messageObject.put("role", "assistant");
+//                    messageObject.put("content", contentBuilder.toString());
+//                    messageObject.put("refusal", JSONObject.NULL);
+//
+//                    choiceObject.put("message", messageObject);
+//                    choiceObject.put("logprobs", JSONObject.NULL);
+//                    choiceObject.put("finish_reason", "stop");
+//                    choicesArray.put(choiceObject);
+//
+//                    openAIResponse.put("choices", choicesArray);
+//
+//                    JSONObject usageObject = new JSONObject();
+//                    int promptTokens = countTokens(contentBuilder.toString());
+//                    usageObject.put("prompt_tokens", promptTokens);
+//                    usageObject.put("completion_tokens", completionTokens);
+//                    usageObject.put("total_tokens", promptTokens + completionTokens);
+//
+//                    JSONObject promptTokensDetails = new JSONObject();
+//                    promptTokensDetails.put("cached_tokens", 0);
+//                    promptTokensDetails.put("audio_tokens", 0);
+//                    usageObject.put("prompt_tokens_details", promptTokensDetails);
+//
+//                    JSONObject completionTokensDetails = new JSONObject();
+//                    completionTokensDetails.put("reasoning_tokens", 0);
+//                    completionTokensDetails.put("audio_tokens", 0);
+//                    completionTokensDetails.put("accepted_prediction_tokens", 0);
+//                    completionTokensDetails.put("rejected_prediction_tokens", 0);
+//                    usageObject.put("completion_tokens_details", completionTokensDetails);
+//
+//                    openAIResponse.put("usage", usageObject);
+//                    openAIResponse.put("system_fingerprint", "fp_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
+//
+//                    exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+//                    String responseBody = openAIResponse.toString();
+//                    exchange.sendResponseHeaders(200, responseBody.getBytes(StandardCharsets.UTF_8).length);
+//                    try (OutputStream os = exchange.getResponseBody()) {
+//                        os.write(responseBody.getBytes(StandardCharsets.UTF_8));
+//                    }
+//
+//                } catch (Exception e) {
+//                    e.printStackTrace();
+//                    sendError(exchange, "处理响应时发生错误: " + e.getMessage());
+//                }
+//            }
+//        });
+//    }
+
+
     /**
      * 处理非流式响应
      *
      * @param exchange 当前的 HttpExchange 对象
      * @param request  构建好的 Request 对象
-     * @param model    使用的模型名称
      */
-    private void handleNormalResponse(HttpExchange exchange, Request request, String model) {
+    private void handleNormalResponse(HttpExchange exchange, Request request) {
         okHttpClient.newCall(request).enqueue(new Callback() {
             @Override
-            public void onFailure(Call call, IOException e) {
+            public void onFailure(@NotNull Call call, @NotNull IOException e) {
                 e.printStackTrace();
                 sendError(exchange, "请求失败: " + e.getMessage());
             }
 
             @Override
-            public void onResponse(Call call, Response response) throws IOException {
-                try {
-                    if (!response.isSuccessful()) {
-                        sendError(exchange, "API 错误: " + response.code());
-                        return;
-                    }
+            public void onResponse(@NotNull Call call, @NotNull Response response) throws IOException {
+                exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+                String responseBody = null;
 
-                    List<String> sseLines = new ArrayList<>();
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream(), StandardCharsets.UTF_8));
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        sseLines.add(line);
-                    }
-
-                    StringBuilder contentBuilder = new StringBuilder();
-                    int completionTokens = 0;
-
-                    for (String sseLine : sseLines) {
-                        if (sseLine.startsWith("data: ")) {
-                            String data = sseLine.substring(6).trim();
-                            if (data.equals("[DONE]")) {
-                                break;
+                if (response.body() != null) {
+                    // 检查响应是否使用gzip压缩
+                    String contentEncoding = response.header("Content-Encoding");
+                    if ("gzip".equalsIgnoreCase(contentEncoding)) {
+//                        System.out.println("gzip");
+                        // 使用GZIPInputStream解压数据
+                        try (GZIPInputStream gzipInputStream = new GZIPInputStream(response.body().byteStream());
+                             BufferedReader reader = new BufferedReader(new InputStreamReader(gzipInputStream, StandardCharsets.UTF_8))) {
+                            StringBuilder sb = new StringBuilder();
+                            String line;
+                            while ((line = reader.readLine()) != null) {
+                                sb.append(line);
                             }
-                            try {
-                                JSONObject sseJson = new JSONObject(data);
-
-                                if (sseJson.has("choices")) {
-                                    JSONArray choices = sseJson.getJSONArray("choices");
-                                    for (int i = 0; i < choices.length(); i++) {
-                                        JSONObject choice = choices.getJSONObject(i);
-                                        if (choice.has("delta")) {
-                                            JSONObject delta = choice.getJSONObject("delta");
-                                            if (delta.has("content")) {
-                                                String content = delta.getString("content");
-                                                contentBuilder.append(content);
-                                                completionTokens += countTokens(content);
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (JSONException e) {
-                                System.err.println("JSON解析错误: " + e.getMessage());
-                                e.printStackTrace();
-                            }
+                            responseBody = sb.toString();
                         }
+                    } else {
+//                        System.out.println("无gzip");
+                        // 如果没有压缩，直接读取
+                        responseBody = response.body().string();
                     }
-
-                    JSONObject openAIResponse = new JSONObject();
-                    openAIResponse.put("id", "chatcmpl-" + UUID.randomUUID().toString().replace("-", ""));
-                    openAIResponse.put("object", "chat.completion");
-                    openAIResponse.put("created", Instant.now().getEpochSecond());
-                    openAIResponse.put("model", model);
-
-                    JSONArray choicesArray = new JSONArray();
-                    JSONObject choiceObject = new JSONObject();
-                    choiceObject.put("index", 0);
-
-                    JSONObject messageObject = new JSONObject();
-                    messageObject.put("role", "assistant");
-                    messageObject.put("content", contentBuilder.toString());
-                    messageObject.put("refusal", JSONObject.NULL);
-
-                    choiceObject.put("message", messageObject);
-                    choiceObject.put("logprobs", JSONObject.NULL);
-                    choiceObject.put("finish_reason", "stop");
-                    choicesArray.put(choiceObject);
-
-                    openAIResponse.put("choices", choicesArray);
-
-                    JSONObject usageObject = new JSONObject();
-                    int promptTokens = countTokens(contentBuilder.toString());
-                    usageObject.put("prompt_tokens", promptTokens);
-                    usageObject.put("completion_tokens", completionTokens);
-                    usageObject.put("total_tokens", promptTokens + completionTokens);
-
-                    JSONObject promptTokensDetails = new JSONObject();
-                    promptTokensDetails.put("cached_tokens", 0);
-                    promptTokensDetails.put("audio_tokens", 0);
-                    usageObject.put("prompt_tokens_details", promptTokensDetails);
-
-                    JSONObject completionTokensDetails = new JSONObject();
-                    completionTokensDetails.put("reasoning_tokens", 0);
-                    completionTokensDetails.put("audio_tokens", 0);
-                    completionTokensDetails.put("accepted_prediction_tokens", 0);
-                    completionTokensDetails.put("rejected_prediction_tokens", 0);
-                    usageObject.put("completion_tokens_details", completionTokensDetails);
-
-                    openAIResponse.put("usage", usageObject);
-                    openAIResponse.put("system_fingerprint", "fp_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
-
-                    exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
-                    String responseBody = openAIResponse.toString();
-                    exchange.sendResponseHeaders(200, responseBody.getBytes(StandardCharsets.UTF_8).length);
-                    try (OutputStream os = exchange.getResponseBody()) {
-                        os.write(responseBody.getBytes(StandardCharsets.UTF_8));
-                    }
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    sendError(exchange, "处理响应时发生错误: " + e.getMessage());
                 }
+                System.out.println("responseBody = \n" + responseBody);
+
+                if (responseBody != null) {
+                    byte[] responseBytes = responseBody.getBytes(StandardCharsets.UTF_8);
+                    exchange.sendResponseHeaders(200, responseBytes.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(responseBytes);
+                        os.flush();
+                    }
+                }
+
+                response.close();
             }
         });
-    }
-
-    public static int countTokens(String text) {
-        if (text == null || text.isEmpty()) {
-            return 0;
-        }
-
-        String[] tokens = text.split("\\s+");
-
-        int tokenCount = 0;
-        for (String token : tokens) {
-            String[] subTokens = token.split("(?=[.,!?;:()\"'])|(?<=[.,!?;:()\"'])");
-            for (String subToken : subTokens) {
-                if (!subToken.trim().isEmpty()) {
-                    tokenCount++;
-                }
-            }
-        }
-
-        return tokenCount;
-    }
-
-    public String extractPathFromMarkdown(String markdown) {
-        Pattern pattern = Pattern.compile("!\\[.*?\\]\\((.*?)\\)");
-        Matcher matcher = pattern.matcher(markdown);
-
-        if (matcher.find()) {
-            return matcher.group(1);
-        }
-
-        return null;
     }
 }
