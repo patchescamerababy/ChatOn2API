@@ -6,10 +6,9 @@
 #include <iomanip>
 #include <algorithm>
 #include <iostream>
-#include <cstdlib> // For getenv
-#include <stdexcept> // For std::runtime_error
+#include <cstdlib>
+#include <stdexcept>
 
-// 初始化静态成员变量 - 从环境变量获取
 std::string BearerTokenGenerator::getUA() {
     const char* env_ua = std::getenv("USER-AGENT");
     return std::string(env_ua);
@@ -17,7 +16,6 @@ std::string BearerTokenGenerator::getUA() {
 
 const std::string BearerTokenGenerator::UA = BearerTokenGenerator::getUA();
 
-// 从环境变量获取密钥A
 std::vector<unsigned char> BearerTokenGenerator::getKeyA() {
     const char* env_key = std::getenv("KEY_A");
     return std::vector<unsigned char>(env_key, env_key + strlen(env_key));
