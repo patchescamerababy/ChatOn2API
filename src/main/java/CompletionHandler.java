@@ -36,7 +36,7 @@ public class CompletionHandler implements HttpHandler {
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override
-    public void handle(HttpExchange exchange) throws IOException {
+        public void handle(HttpExchange exchange) throws IOException {
         // 设置 CORS 头
         Headers headers = exchange.getResponseHeaders();
         headers.add("Access-Control-Allow-Origin", "*");
@@ -250,7 +250,9 @@ public class CompletionHandler implements HttpHandler {
                 sendError(exchange, "内部服务器错误: " + e.getMessage());
             }
         }, executor);
+
     }
+
 
     /**
      * 处理流式响应
