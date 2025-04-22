@@ -13,6 +13,8 @@
 
     docker pull patchescamera/chaton2api:latest
     docker run -d -p 8080:80 patchescamera/chaton2api:latest
+    ## 可设置环境变量作为代理，例如
+    docker run -d -p 8080:80 -e http_proxy=127.0.0.1:7890 patchescamera/chaton2api
 
 #### 支持的模型
 
