@@ -1,13 +1,13 @@
-这是一个OpenAI 类服务端程序
+这是一个OpenAI API 兼容服务端程序
 
 由👇分析而来
 
   <a href="https://play.google.com/store/apps/details?id=ai.chat.gpt.bot">ChatOn</a>
 
 
-本项目是一个类 OpenAI 服务端程序，向API发送请求，然后模拟OpenAI API标准的响应
+本项目是一个 OpenAI API 兼容的服务端程序
 
-可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
+可与NextChat、ChatBox 等前端应用兼容
 
 ## Docker 部署
 
