@@ -28,7 +28,7 @@ claude Haiku✅
 
 deekseek-r1✅
 
-sonar-reasoning-pro✅（这个是网络搜索的，并非推理模型）
+sonar-reasoning-pro✅（这个是网络搜索的，推理性能不佳）
 
 支持的功能
 
