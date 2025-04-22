@@ -36,25 +36,22 @@ Completions:
 
 	/v1/chat/completions
 
-
 TextToImage:
 
 	/v1/images/generations
-
-ImageToText：可传直链，如果传base64编码的图片服务需要部署在公网
 
 不支持function calling，默认支持网络搜索、dall-e画图、python运行代码，stream为true时可在对话中画图
  
 测试示例
 
- 	curl --request POST 'http://127.0.0.1:8080/v1/chat/completions' \
+ 	curl -X POST 'http://127.0.0.1:8080/v1/chat/completions' \
  	--header 'Content-Type: application/json' \
  	--data '{"stream":false,"messages":[{"role":"user","content":"hello"}],"model":"gpt-4o"}'
   
 
 传图（base64图片自动上传至图床，或直接传直连，支持多张图片同时上传）：
 
-	curl  -X POST http://127.0.0.1:8080/v1/chat/completions \
+	curl -X POST http://127.0.0.1:8080/v1/chat/completions \
 	 --header 'Content-Type: application/json' \
 	 --data '{"messages":[{"role":"user","content":[{"type":"text","text":"What is this"},{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAABGdBTUEAALGPC/xhBQAAAEBJREFUGNNjYACCBAWF/yCMzmaACVy4cOG/g4MDWAJEw9hwBTBBZAxXECwtjVUBSBxuDboiFEl0RVglkRUxkAoA6pU6bjl6zpsAAAAASUVORK5CYII="}}]}],"model":"gpt-4o","stream":false}'
 
@@ -62,13 +59,13 @@ ImageToText：可传直链，如果传base64编码的图片服务需要部署在
 
 /v1/images/generations画图示例
 
-	curl --request POST 'http://127.0.0.1:8080/v1/images/generations' \
+	curl -X POST 'http://127.0.0.1:8080/v1/images/generations' \
 	--header 'Content-Type: application/json' \
 	--data '{"prompt":"girl","response_format":"b64_json","model":"gpt-4o","style":"vivid"}'
  
 或
 
- 	curl --request POST 'http://127.0.0.1:8080/v1/images/generations' \
+ 	curl -X POST 'http://127.0.0.1:8080/v1/images/generations' \
 	--header 'Content-Type: application/json' \
 	--data '{"prompt": "girl", "model": "gpt-4o", "n": 1, "size": "1024x1024"}'
 
