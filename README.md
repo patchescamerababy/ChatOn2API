@@ -39,8 +39,12 @@ Completions:
 TextToImage:
 
 	/v1/images/generations
-
-不支持function calling，默认支持网络搜索、dall-e画图、python运行代码，stream为true时可在对话中画图
+ 
+ TextToSpeech:
+ 
+	/v1/audio/speech
+ 
+不支持function calling，默认支持网络搜索、dall-e画图、python运行代码，stream为true时可在对话中画图。TTS暂不支持更换模型
  
 测试示例
 
