@@ -9,6 +9,10 @@
 
 可与多种前端应用（如 NextChat、ChatBox 等）无缝集成
 
+## Docker 部署
+
+    docker pull patchescamera/chaton2api:latest
+    docker run -d -p 8080:80 patchescamera/chaton2api:latest
 
 #### 支持的模型
 
