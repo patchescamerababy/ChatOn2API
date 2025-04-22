@@ -28,6 +28,8 @@ claude Haiku✅
 
 deekseek-r1✅
 
+sonar-reasoning-pro✅（这个是网络搜索的，并非推理模型）
+
 支持的功能
 
 Completions: （可联网搜索）
