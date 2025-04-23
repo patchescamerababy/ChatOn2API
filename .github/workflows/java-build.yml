@@ -89,32 +89,28 @@ jobs:
           copy /b "target\%%i" "target\native-image\ChatOn.jar"
         )
         
-        echo "Copying config directory..."
-        if exist "src\main\java\config-dir" (
-          xcopy /E /I /Y "src\main\java\config-dir" "target\native-image\config-dir"
-        ) else (
-          echo "Config directory not found!"
-          exit 1
-        )
+        #echo "Copying config directory..."
+        #if exist "src\main\java\config-dir" (
+        #  xcopy /E /I /Y "src\main\java\config-dir" "target\native-image\config-dir"
+        #) else (
+        #  echo "Config directory not found!"
+        #  exit 1
+        #)
         
         cd "target\native-image"
         
         echo "Running native-image command..."
         native-image.cmd ^
-        -J-Xmx8G ^
-        -H:ConfigurationFileDirectories=config-dir ^
         -H:+AddAllCharsets ^
+        -H:+IncludeAllLocales ^
         -jar ChatOn.jar ^
         -H:Name=${{ matrix.artifact_name }} ^
         --enable-https ^
         --enable-http ^
         --static ^
         --no-fallback ^
-        --initialize-at-run-time ^
-        --initialize-at-run-time=ModelsHandler ^
-        --initialize-at-run-time=utils.BearerTokenGenerator ^
-        --initialize-at-build-time=Main ^
-        --initialize-at-build-time=CompletionHandler
+        --initialize-at-build-time ^
+        --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient
 
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
@@ -125,20 +121,17 @@ jobs:
         cp -r src/main/java/config-dir target/native-image/
         cd target/native-image
         native-image \
-          -J-Xmx8G \
-          -H:ConfigurationFileDirectories=./config-dir \
+          -H:+JNI \
           -H:+AddAllCharsets \
+          -H:+IncludeAllLocales \
           -jar ChatOn.jar \
           -H:Name=${{ matrix.artifact_name }} \
           --enable-https \
           --enable-http \
           ${{ matrix.static == true && '--static' || '' }} \
           --no-fallback \
-          --initialize-at-run-time \
-          --initialize-at-run-time=ModelsHandler \
-          --initialize-at-run-time=utils.BearerTokenGenerator \
-          --initialize-at-build-time=Main \
-          --initialize-at-build-time=CompletionHandler
+          --initialize-at-build-time \
+          --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient
 
     - name: Upload Native Build (Windows)
       if: matrix.os == 'windows-latest'
