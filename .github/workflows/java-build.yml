@@ -116,7 +116,7 @@ jobs:
         --static ^
         --no-fallback ^
         --initialize-at-build-time ^
-        --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient
+        --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient,utils.BearerTokenGenerator
 
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
@@ -138,7 +138,7 @@ jobs:
           ${{ matrix.static == true && '--static' || '' }} \
           --no-fallback \
           --initialize-at-build-time \
-          --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient
+          --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient,utils.BearerTokenGenerator
 
     - name: Upload Native Build (Windows)
       if: matrix.os == 'windows-latest'
