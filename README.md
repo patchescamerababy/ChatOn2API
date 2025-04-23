@@ -44,7 +44,9 @@ TextToImage:
  
 	/v1/audio/speech
  
-不支持function calling，默认支持网络搜索、dall-e画图、python运行代码，stream为true时可在对话中画图。TTS暂不支持更换模型
+不支持function calling，默认支持网络搜索、dall-e画图、python运行代码，stream为true时可在对话中画图。
+
+TTS可用的模型：tts-1-hd、tts，可用的voice：alloy、echo、fable、onyx、nova（默认）、shimmer
  
 测试示例
 
