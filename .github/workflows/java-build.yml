@@ -16,40 +16,34 @@ permissions:
 
 jobs:
   build:
-    name: Build (glibc / Windows / MacOS)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         include:
-          # Linux x86_64 static (glibc)
           - os: ubuntu-latest
             arch: amd64
             label: linux-amd64
             static: true
             artifact_name: ChatOn-Linux-x86_64
             gc_flag: "--gc=G1"
-          # Linux ARM64 static (glibc)
           - os: ubuntu-latest
             arch: arm64
             label: linux-arm64
             static: true
             artifact_name: ChatOn-Linux-aarch64
             gc_flag: "--gc=G1"
-          # Windows x86_64
           - os: windows-latest
             arch: amd64
             label: windows-amd64
             static: true
             artifact_name: ChatOn-Windows-x86_64
             gc_flag: ""
-          # macOS x86_64
           - os: macos-latest
             arch: amd64
             label: macos-amd64
             static: false
             artifact_name: ChatOn-macOS-x86_64
             gc_flag: ""
-          # macOS ARM64
           - os: macos-14
             arch: arm64
             label: macos-arm64
@@ -57,204 +51,177 @@ jobs:
             artifact_name: ChatOn-macOS-aarch64
             gc_flag: ""
 
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Generate build info
-        id: build_info
-        run: |
-          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
-          echo "build_id=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-
-      - name: Setup GraalVM
-        uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '17'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          native-image-job-reports: 'true'
-          architecture: ${{ matrix.arch }}
-
-      - name: Build with Maven
-        run: mvn -B clean package --file pom.xml
-
-      # ==== Native Image 构建 ====
-
-      - name: Build Native Image (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: cmd
-        run: |
-          mkdir target\native-image
-          copy target\*jar-with-dependencies.jar target\native-image\ChatOn.jar
-          cd target\native-image
-          native-image.cmd -H:+AddAllCharsets -H:+IncludeAllLocales ^
-            -jar ChatOn.jar ^
-            -H:Name=${{ matrix.artifact_name }} ^
-            --enable-https --enable-http ^
-            --static --no-fallback ^
-            --initialize-at-build-time ^
-            --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient,utils.BearerTokenGenerator
-
-      - name: Build Native Image (Linux/MacOS)
-        if: matrix.os != 'windows-latest'
-        shell: bash
-        run: |
-          mkdir -p target/native-image
-          cp target/*-jar-with-dependencies.jar target/native-image/ChatOn.jar
-          cp -r src/main/java/config-dir target/native-image/ || true
-          cd target/native-image
-          native-image \
-            -H:+JNI \
-            -H:+AddAllCharsets \
-            -H:+IncludeAllLocales \
-            -jar ChatOn.jar \
-            -H:Name=${{ matrix.artifact_name }} \
-            --enable-https --enable-http \
-            ${{ matrix.gc_flag }} \
-            ${{ matrix.static == true && '--static' || '' }} \
-            --no-fallback \
-            --initialize-at-build-time \
-            --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient,utils.BearerTokenGenerator
-
-      # ==== 上传 Artifact ====
-
-      - name: Upload Native Build (Windows)
-        if: matrix.os == 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}-${{ steps.build_info.outputs.date }}-${{ steps.build_info.outputs.build_id }}
-          path: target/native-image/${{ matrix.artifact_name }}.exe
-          retention-days: 5
-
-      - name: Upload Native Build (Linux/MacOS)
-        if: matrix.os != 'windows-latest'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}-${{ steps.build_info.outputs.date }}-${{ steps.build_info.outputs.build_id }}
-          path: target/native-image/${{ matrix.artifact_name }}
-          retention-days: 5
-
-  build-musl:
-    name: Build Linux MUSL Static (Alpine 兼容)
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - arch: amd64
-            label: linux-musl-amd64
-            artifact_name: ChatOn-Linux-musl-x86_64
-          - arch: arm64
-            label: linux-musl-arm64
-            artifact_name: ChatOn-Linux-musl-aarch64
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Generate build info
-        id: musl_build_info
-        run: |
-          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
-          echo "build_id=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+    - name: Generate build info
+      id: build_info
+      shell: bash
+      run: |
+        echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+        echo "build_id=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+    - name: Setup GraalVM
+      uses: graalvm/setup-graalvm@v1
+      with:
+        java-version: '17'
+        distribution: 'graalvm'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        native-image-job-reports: 'true'
+        architecture: ${{ matrix.arch }}
 
-      - name: Setup GraalVM
-        uses: graalvm/setup-graalvm@v1
-        with:
-          java-version: '21'
-          distribution: 'graalvm'
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          native-image-job-reports: 'true'
-          architecture: ${{ matrix.arch }}
+    - name: Build with Maven
+      run: mvn -B clean package --file pom.xml
 
-      - name: Install MUSL toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
+    - name: Upload JAR Artifacts
+      if: matrix.os == 'ubuntu-latest' && matrix.arch == 'amd64'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ChatOn-${{ steps.build_info.outputs.date }}-${{ steps.build_info.outputs.build_id }}-jar
+        path: target/*-jar-with-dependencies.jar
+        retention-days: 5
 
-      - name: Build with Maven
-        run: mvn -B clean package --file pom.xml
+    - name: Build Native Image (Windows)
+      if: matrix.os == 'windows-latest'
+      shell: cmd
+      run: |
+        echo "Creating native-image directory..."
+        if not exist "target\native-image" mkdir "target\native-image"
+        
+        echo "Copying JAR file..."
+        for /f "delims=" %%i in ('dir /b "target\ChatOn-*-jar-with-dependencies.jar"') do (
+          echo "Found JAR: %%i"
+          copy /b "target\%%i" "target\native-image\ChatOn.jar"
+        )
+        
+        #echo "Copying config directory..."
+        #if exist "src\main\java\config-dir" (
+        #  xcopy /E /I /Y "src\main\java\config-dir" "target\native-image\config-dir"
+        #) else (
+        #  echo "Config directory not found!"
+        #  exit 1
+        #)
+        
+        cd "target\native-image"
+        
+        echo "Running native-image command..."
+        native-image.cmd ^
+        -H:+AddAllCharsets ^
+        -H:+IncludeAllLocales ^
+        -jar ChatOn.jar ^
+        -H:Name=${{ matrix.artifact_name }} ^
+        --enable-https ^
+        --enable-http ^
+        --static ^
+        --no-fallback ^
+        --initialize-at-build-time ^
+        --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient,utils.BearerTokenGenerator
+    - name: Build Native Image (Linux/MacOS)
+      if: matrix.os != 'windows-latest'
+      shell: bash
+      run: |
+        mkdir -p target/native-image
+        cp target/*-jar-with-dependencies.jar target/native-image/ChatOn.jar
+        cp -r src/main/java/config-dir target/native-image/
+        cd target/native-image
+        native-image \
+          -H:+JNI \
+          -H:+AddAllCharsets \
+          -H:+IncludeAllLocales \
+          -jar ChatOn.jar \
+          -H:Name=${{ matrix.artifact_name }} \
+          --enable-https \
+          --enable-http \
+          ${{ matrix.gc_flag }} \
+          ${{ matrix.static == true && '--static' || '' }} \
+          --no-fallback \
+          --initialize-at-build-time \
+          --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient,utils.BearerTokenGenerator
+    - name: Upload Native Build (Windows)
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}-${{ steps.build_info.outputs.date }}-${{ steps.build_info.outputs.build_id }}
+        path: target/native-image/${{ matrix.artifact_name }}.exe
+        retention-days: 5
+        if-no-files-found: error
 
-      - name: Build Native Image (MUSL)
-        shell: bash
-        env:
-          CC: musl-gcc
-        run: |
-          mkdir -p target/native-image
-          cp target/*-jar-with-dependencies.jar target/native-image/ChatOn.jar
-          cd target/native-image
-          native-image \
-            -H:+JNI \
-            -H:+AddAllCharsets \
-            -H:+IncludeAllLocales \
-            -jar ChatOn.jar \
-            -H:Name=${{ matrix.artifact_name }} \
-            --enable-https --enable-http \
-            --static \
-            --libc=musl \
-            --no-fallback \
-            --initialize-at-build-time \
-            --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient,utils.BearerTokenGenerator
-
-      - name: Upload MUSL Build
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.artifact_name }}-${{ steps.musl_build_info.outputs.date }}-${{ steps.musl_build_info.outputs.build_id }}
-          path: target/native-image/${{ matrix.artifact_name }}
-          retention-days: 5
+    - name: Upload Native Build (Linux/MacOS)
+      if: matrix.os != 'windows-latest'
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}-${{ steps.build_info.outputs.date }}-${{ steps.build_info.outputs.build_id }}
+        path: target/native-image/${{ matrix.artifact_name }}
+        retention-days: 5
+        if-no-files-found: error
 
   release:
-    name: Release
-    needs: [build, build-musl]
+    needs: build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v4
+    
+    - name: Setup Maven
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    
+    - name: Generate release info
+      id: release_info
+      run: |
+        echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
+        echo "build_id=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+    - name: Install compression tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y p7zip-full xz-utils tar
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
 
-      - name: Setup Maven
-        uses: actions/setup-java@v3
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Generate release info
-        id: release_info
-        run: |
-          echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
-          echo "build_id=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
-          VERSION=$(mvn help:evaluate -Dexpression=project.version -q -DforceStdout)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-      - name: Install compression tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y p7zip-full xz-utils tar
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Prepare and compress release assets
-        run: |
-          mkdir -p release temp
-          for dir in artifacts/*; do
-            name=$(basename "$dir")
-            if ls "$dir"/*.exe >/dev/null 2>&1; then
-              7z a "release/${name}.7z" "$dir"/*
-            elif ls "$dir"/*.jar >/dev/null 2>&1; then
+    - name: Prepare and compress release assets
+      run: |
+        mkdir -p release
+        mkdir -p temp
+        
+        echo "Contents of artifacts directory:"
+        ls -R artifacts/
+        
+        # Process each artifact directory
+        for dir in artifacts/*; do
+          if [ -d "$dir" ]; then
+            artifact_name=$(basename "$dir")
+            echo "Processing artifact: $artifact_name"
+            
+            # Check for file types and process accordingly
+            if [ -f "$dir"/*.exe ]; then
+              echo "Processing Windows executable"
+              7z a "release/${artifact_name}.7z" "$dir"/*
+            elif [ -f "$dir"/*.jar ]; then
+              echo "Processing JAR file"
               cp "$dir"/*.jar release/
             else
-              tar -cJf "release/${name}.tar.xz" -C "$dir" .
+              echo "Processing binary file"
+              tar -czf "release/${artifact_name}.tar.xz" -C "$dir" .
             fi
-          done
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: release/*
-          tag_name: v${{ steps.release_info.outputs.version }}-${{ steps.release_info.outputs.date }}-${{ steps.release_info.outputs.build_id }}
-          name: Release ${{ steps.release_info.outputs.version }} (${{ steps.release_info.outputs.date }}-${{ steps.release_info.outputs.build_id }})
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          fi
+        done
+        
+        echo "Final release contents:"
+        ls -la release/
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: release/*
+        tag_name: v${{ steps.release_info.outputs.version }}-${{ steps.release_info.outputs.date }}-${{ steps.release_info.outputs.build_id }}
+        name: Release ${{ steps.release_info.outputs.version }} (${{ steps.release_info.outputs.date }}-${{ steps.release_info.outputs.build_id }})
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
