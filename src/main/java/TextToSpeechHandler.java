@@ -1,20 +1,22 @@
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import okhttp3.*;
 import org.jetbrains.annotations.NotNull;
-import org.json.JSONObject;
 import utils.BearerTokenGenerator;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class TextToSpeechHandler implements HttpHandler {
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private static final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
@@ -48,40 +50,49 @@ public class TextToSpeechHandler implements HttpHandler {
             return;
         }
 
-        // 2. 异步读取请求、调用下游 TTS、并流式返回
-        CompletableFuture.runAsync(() -> {
+
             try (InputStream clientIs = exchange.getRequestBody()) {
                 // 2.1 读取并解析客户端 JSON
                 String jsonText = new BufferedReader(new InputStreamReader(clientIs, StandardCharsets.UTF_8))
                         .lines().reduce("", (accumulator, actual) -> accumulator + actual);
 
-                JSONObject inJson = new JSONObject(jsonText);
-                System.out.println("Text To Speech 收到的请求: \n" + inJson.toString());
-                String inputText = inJson.getString("input");
-                String format   = inJson.optString("response_format", "mp3");
-                String voice = inJson.optString("voice","nova");
-                String model = inJson.optString("model", "tts-1-hd");
+                // 用 Jackson 解析 JSON
+                Map<String, Object> inJson = objectMapper.readValue(jsonText, Map.class);
+                System.out.println("Text To Speech 收到的请求: \n" + objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(inJson));
+                String inputText = (String) inJson.get("input");
+                String format = inJson.getOrDefault("response_format", "mp3").toString();
+                String voice = inJson.getOrDefault("voice", "nova").toString();
+                String model = inJson.getOrDefault("model", "tts-1-hd").toString();
 
-
-                if(!model.startsWith("tts-1")){
+                if (!model.startsWith("tts-1")) {
                     model = "tts-1-hd";
                 }
-                int speed = inJson.optInt("speed", 1);
-                // 2.2 构造并发起到 TTS 服务的请求
-                JSONObject outJson = new JSONObject();
+                int speed = 1;
+                if (inJson.containsKey("speed")) {
+                    Object speedObj = inJson.get("speed");
+                    if (speedObj instanceof Number) {
+                        speed = ((Number) speedObj).intValue();
+                    } else {
+                        try {
+                            speed = Integer.parseInt(speedObj.toString());
+                        } catch (Exception ignore) {}
+                    }
+                }
+
+
+                Map<String, Object> outJson = new HashMap<>();
                 outJson.put("input", inputText);
                 outJson.put("response_format", format);
                 outJson.put("voice", voice);
                 outJson.put("model", model);
                 outJson.put("speed", speed);
-                if(inJson.has("stream")) {
-                    boolean stream = inJson.optBoolean("stream", false);
-                    outJson.put("stream", stream);
+                if (inJson.containsKey("stream")) {
+                    outJson.put("stream", Boolean.parseBoolean(inJson.get("stream").toString()));
                 }
-                byte[] bodyBytes = outJson.toString().getBytes(StandardCharsets.UTF_8);
+                byte[] bodyBytes = objectMapper.writeValueAsBytes(outJson);
 
                 Request ttsRequest = utils.utils.buildRequest(bodyBytes, "/audio/speech");
-                OkHttpClient client  = utils.utils.getOkHttpClient();
+                OkHttpClient client = utils.utils.getOkHttpClient();
 
                 client.newCall(ttsRequest).enqueue(new Callback() {
                     @Override
@@ -96,7 +107,7 @@ public class TextToSpeechHandler implements HttpHandler {
                             return;
                         }
 
-                        // 2.3 设置响应头，使用 chunked 传输
+                        // 设置响应头，使用 chunked 传输
                         Headers hdrs = exchange.getResponseHeaders();
                         hdrs.add("Content-Type", "audio/mpeg");
                         hdrs.add("Accept-Ranges", "bytes");
@@ -107,12 +118,13 @@ public class TextToSpeechHandler implements HttpHandler {
                             InputStream ttsStream = ttsResp.body().byteStream();
                             OutputStream clientOs = exchange.getResponseBody();
 
-                            byte[] buffer = new byte[8192];
+                            // 使用较小的缓冲区以减少延迟
+                            byte[] buffer = new byte[1024];
                             int len;
                             while ((len = ttsStream.read(buffer)) != -1) {
                                 clientOs.write(buffer, 0, len);
+                                clientOs.flush(); // 立即刷新，确保数据尽快发送到客户端
                             }
-                            clientOs.flush();
                         } catch (IOException ioe) {
                             ioe.printStackTrace();
                         } finally {
@@ -121,11 +133,11 @@ public class TextToSpeechHandler implements HttpHandler {
                             } catch (IOException ignored) {}
                         }
                     }
+
                 });
 
             } catch (Exception ex) {
                 ex.printStackTrace();
             }
-        }, executor);
     }
 }
