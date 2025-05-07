@@ -17,7 +17,8 @@ public class ModelsHandler implements HttpHandler {
         models.add(new JSONObject().put("id", "gpt-4o-mini").put("object", "model"));
         models.add(new JSONObject().put("id", "claude").put("object", "model"));
         models.add(new JSONObject().put("id", "claude-3-haiku").put("object", "model"));
-        models.add(new JSONObject().put("id", "claude-3-5-claude").put("object", "model"));
+        models.add(new JSONObject().put("id", "claude-3-5-sonnet").put("object", "model"));
+        models.add(new JSONObject().put("id", "claude-3-7-sonnet").put("object", "model"));
         models.add(new JSONObject().put("id", "deepseek-r1").put("object", "model"));
         models.add(new JSONObject().put("id", "sonar-reasoning-pro").put("object", "model"));
     }
