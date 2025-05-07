@@ -10,6 +10,23 @@ App Store</a>
 
 可与NextChat、ChatBox 等前端应用兼容
 
+## Docker 部署
+    # 需要设置环境变量
+    docker pull patchescamera/chaton2api:latest
+    docker run -d -p 8080:80 \
+	  -e KEY_A=key_a \
+	  -e KEY_B=key_b \
+	  -e USER_AGENT=user_agent \
+	  patchescamera/chaton2api:latest
+
+    # 可设置环境变量作为代理，例如
+    docker run -d -p 8080:80 \
+	  -e KEY_A=key_a \
+	  -e KEY_B=key_b \
+	  -e USER_AGENT=user_agent \
+   	  -e http_proxy=127.0.0.1:7890 \
+	  patchescamera/chaton2api:latest
+    
 #### 支持的模型id
 
 gpt-4o✅
@@ -77,8 +94,8 @@ TTS可用的模型：**tts-1-hd**、**tts-1**，可用的voice：alloy、echo、
 
 # 关于环境变量
 
-去下载apk，然后抓包、Authorization的格式为"Bearer <>.<>"。把一段用Base64解码后，用16进制编辑器（HeX/WinHex）查就知道了。
-
-User-Agent自己抓包就能看出来了
+去下载apk，然后抓包。Authorization的格式为"Bearer <>.<>"。把第一段用Base64解码后，再用16进制编辑器（HeX/WinHex）去查对应文件就知道第二段的密钥了，User Agent自己抓包就能看出来了
 
 ~~此方法是总结出来的~~
+
+~~可有偿提供，联系📧patches.camera_0m@icloud.com~~
