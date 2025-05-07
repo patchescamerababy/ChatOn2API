@@ -56,7 +56,7 @@ public class TextToSpeechHandler implements HttpHandler {
                         .lines().reduce("", (accumulator, actual) -> accumulator + actual);
 
                 JSONObject inJson = new JSONObject(jsonText);
-
+                System.out.println("Text To Speech 收到的请求: \n" + inJson.toString());
                 String inputText = inJson.getString("input");
                 String format   = inJson.optString("response_format", "mp3");
                 String voice = inJson.optString("voice","nova");
