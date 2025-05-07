@@ -11,7 +11,7 @@ import javax.crypto.spec.SecretKeySpec;
 public class BearerTokenGenerator {
     private static final byte[] __ = System.getenv("KEY_A").getBytes(StandardCharsets.UTF_8);
     private static final byte[] ___ = System.getenv("KEY_B").getBytes(StandardCharsets.UTF_8);
-    public static final String UA = System.getenv("User-Agent");
+    public static final String UA = System.getenv("USER_AGENT");
     public static String GetBearer(byte[] ____, String _____, String ______, String _______) {
         String ________ = _______ + new String(new byte[]{58}) + _____ + new String(new byte[]{58}) + ______ + new String(new byte[]{10});
         byte[] _________ = ________.getBytes(StandardCharsets.UTF_8);
