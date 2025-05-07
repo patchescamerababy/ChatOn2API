@@ -14,7 +14,7 @@ import java.util.concurrent.Executors;
 
 public class TextToSpeechHandler implements HttpHandler {
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
