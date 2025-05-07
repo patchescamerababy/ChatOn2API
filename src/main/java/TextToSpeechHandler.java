@@ -80,7 +80,7 @@ public class TextToSpeechHandler implements HttpHandler {
                 }
                 byte[] bodyBytes = outJson.toString().getBytes(StandardCharsets.UTF_8);
 
-                Request ttsRequest = utils.utils.buildRequest(bodyBytes, "/audio/speech", BearerTokenGenerator.UA);
+                Request ttsRequest = utils.utils.buildRequest(bodyBytes, "/audio/speech");
                 OkHttpClient client  = utils.utils.getOkHttpClient();
 
                 client.newCall(ttsRequest).enqueue(new Callback() {
