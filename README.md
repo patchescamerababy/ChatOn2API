@@ -24,7 +24,7 @@ claude✅(claude 3 haiku)
 
 deekseek-r1✅
 
-sonar-reasoning-pro✅（这个是网络搜索的，推理基于deepseek-r1）
+sonar-reasoning-pro✅
 
 支持的功能
 
@@ -82,5 +82,3 @@ TTS可用的模型：**tts-1-hd**、**tts-1**，可用的voice：alloy、echo、
 User-Agent自己抓包就能看出来了
 
 ~~此方法是总结出来的~~
-
-~~可有偿提供Android和iOS，联系📧patches.camera_0m@icloud.com~~
