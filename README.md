@@ -1,20 +1,14 @@
 这是一个OpenAI API 兼容服务端程序
 
-由👇分析而来
+来源
 
-  <a href="https://play.google.com/store/apps/details?id=ai.chat.gpt.bot">ChatOn</a>
+  <a href="https://play.google.com/store/apps/details?id=ai.chat.gpt.bot">Google play</a> <a href="https://apps.apple.com/us/app/chaton-ai-chat-bot-assistant/id1661308505">
+App Store</a>
 
 
 本项目是一个 OpenAI API 兼容的服务端程序
 
 可与NextChat、ChatBox 等前端应用兼容
-
-## Docker 部署
-
-    docker pull patchescamera/chaton2api:latest
-    docker run -d -p 8080:80 patchescamera/chaton2api:latest
-    ## 可设置环境变量作为代理，例如
-    docker run -d -p 8080:80 -e http_proxy=127.0.0.1:7890 patchescamera/chaton2api
 
 #### 支持的模型id
 
@@ -87,6 +81,6 @@ TTS可用的模型：**tts-1-hd**、**tts-1**，可用的voice：alloy、echo、
 
 User-Agent自己抓包就能看出来了
 
-~~要查哪个文件就不要问了~~
+~~此方法是总结出来的~~
 
-~~其实某些工具可以直接查目录下包含所需内容的文件~~
+~~可有偿提供Android和iOS，联系📧patches.camera_0m@icloud.com~~
