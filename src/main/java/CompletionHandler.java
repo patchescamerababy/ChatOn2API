@@ -35,10 +35,8 @@ import utils.utils.*;
  */
 public class CompletionHandler implements HttpHandler {
 
-    // OkHttp 客户端实例
-//    private final OkHttpClient okHttpClient = utils.utils.getOkHttpClient();
 
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
