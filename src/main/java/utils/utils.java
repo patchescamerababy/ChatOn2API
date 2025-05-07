@@ -129,18 +129,17 @@ public class utils {
      * 构建 OkHttp 请求，并设置必要的请求头，包括 "Connection: Keep-Alive"
      *
      * @param modifiedRequestBody 请求体
-     * @param UA                  用户端版本号
      * @return 构建好的 Request 对象
      */
-    public static Request buildRequest(byte[] modifiedRequestBody,String path, String UA) {
+    public static Request buildRequest(byte[] modifiedRequestBody,String path) {
         String date = utils.getFormattedDate();
         String tmpToken = BearerTokenGenerator.GetBearer(modifiedRequestBody, path, date, "POST");
         return new Request.Builder()
                 .url("https://api.chaton.ai"+path)
                 .addHeader("Date", date)
-                .addHeader("Client-time-zone", utils.timeZone)
+                .addHeader("Client-time-zone", timeZone)
                 .addHeader("Authorization", tmpToken)
-                .addHeader("User-Agent", "ChatOn_Android/" + UA)
+                .addHeader("User-Agent", BearerTokenGenerator.UA)
                 .addHeader("Accept-Language", "en-US")
                 .addHeader("X-Cl-Options", "hb")
                 .addHeader("Content-Type", "application/json; charset=UTF-8")
