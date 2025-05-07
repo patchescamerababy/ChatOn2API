@@ -143,7 +143,6 @@ public class CompletionHandler implements HttpHandler {
                                                     }
                                                 }).thenAccept(uploadedUrl -> {
                                                     System.out.println("图片已上传，URL: " + uploadedUrl);
-                                                    // 注意：这里需要保证线程安全，避免多个线程同时写入链表
                                                     synchronized (imageUrlList) {
                                                         imageUrlList.add(uploadedUrl);
                                                     }
@@ -154,7 +153,6 @@ public class CompletionHandler implements HttpHandler {
                                                 System.out.println("接收到标准图片 URL: " + dataUrl);
                                                 imageUrlList.add(dataUrl);
                                             }
-                                            // 标记此消息包含图片
                                             hasImage = true;
                                             messageHasImage = true;
                                         }
@@ -169,7 +167,6 @@ public class CompletionHandler implements HttpHandler {
                                     allUploads.join(); // 阻塞直到所有上传完成
                                 }
 
-                                // 如果链表中有图片 URL，则将其封装到 images 字段中
                                 if (!imageUrlList.isEmpty()) {
                                     JSONArray imagesArray = new JSONArray();
                                     for (String url : imageUrlList) {
@@ -217,33 +214,6 @@ public class CompletionHandler implements HttpHandler {
                             message.put("content", systemContent);
                         }
 
-                        if (role.equals("user") && message.has("content")) {
-                            String userContent = message.optString("content", "");
-                            if (userContent.contains("http://") || userContent.contains("https://")) {
-                                // 这是一个比较通用的 URL 正则
-                                Pattern pattern = Pattern.compile(
-                                        "(ht|f)tp(s?)\\:\\/\\/[0-9a-zA-Z]([-.\\w]*[0-9a-zA-Z])*(:(0-9)*)*(\\/?)([a-zA-Z0-9\\-\\.\\?\\,\\'\\/\\\\\\+&%\\$#_]*)?$"
-                                );
-                                Matcher matcher = pattern.matcher(userContent);
-                                if (matcher.find()) {
-                                    String url = matcher.group();
-
-
-                                    // 只有指向公网的 URL 才处理
-                                    if (isPublicURL(url)) {
-                                        System.out.println("URL: " + url);
-                                        hasURL = true;
-                                        String fetched = utils.utils.fetchURL(url);
-                                        message.put("content", userContent + "\n\n" + fetched);
-
-                                    } else {
-                                        hasURL = false;
-                                        // 也可以选择给用户提示 “URL 属于内网/回环地址，已忽略”
-                                    }
-                                }
-                            }
-                        }
-
                         // 将处理后的消息添加到新数组中
                         processedMessages.put(message);
                     }
@@ -259,8 +229,8 @@ public class CompletionHandler implements HttpHandler {
 
 
                 model = model.toLowerCase();
-                // "claude-3.5-sonnet" 转换为 "claude-3-5-sonnet"
                 model = model.equals("claude-3.5-sonnet") ? "claude-3-5-sonnet" : model;
+                model = model.equals("claude-3.7-sonnet") ? "claude-3-7-sonnet" : model;
                 // "gpt 4o" 转换为 "gpt-4o"
                 model = model.equals("gpt 4o") ? "gpt-4o" : model;
                 model = model.startsWith("gpt") ? "gpt-4o" : model;
@@ -291,11 +261,10 @@ public class CompletionHandler implements HttpHandler {
                 byte[] requestBodyBytes = modifiedRequestBody.getBytes(StandardCharsets.UTF_8);
 
                 if (isStream) {
-                    Request request = utils.utils.buildRequest(requestBodyBytes, "/chats/stream", BearerTokenGenerator.UA);
+                    Request request = utils.utils.buildRequest(requestBodyBytes, "/chats/stream");
                     handleStreamResponse(exchange, request);
                 } else {
-                    Request requestNormal = utils.utils.buildRequest(requestBodyBytes, "/chats/text", BearerTokenGenerator.UA);
-//                    Request requestNormal = utils.utils.buildRequest(requestBodyBytes, "/chats/stream", BearerTokenGenerator.UA);
+                    Request requestNormal = utils.utils.buildRequest(requestBodyBytes, "/chats/text");
                     handleNormalResponse(exchange, requestNormal);
                 }
             } catch (Exception e) {
@@ -529,129 +498,6 @@ public class CompletionHandler implements HttpHandler {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 24);
     }
 
-//    /**
-//     * 处理非流式响应
-//     *
-//     * @param exchange 当前的 HttpExchange 对象
-//     * @param request  构建好的 Request 对象
-//     * @param model    使用的模型名称
-//     */
-//    private void handleNormalResponse(HttpExchange exchange, Request request, String model) {
-//    OkHttpClient okHttpClient = utils.utils.getOkHttpClient();
-//        okHttpClient.newCall(request).enqueue(new Callback() {
-//            @Override
-//            public void onFailure(Call call, IOException e) {
-//                e.printStackTrace();
-//                sendError(exchange, "请求失败: " + e.getMessage());
-//            }
-//
-//            @Override
-//            public void onResponse(Call call, Response response) throws IOException {
-//                try {
-//                    if (!response.isSuccessful()) {
-//                        sendError(exchange, "API 错误: " + response.code());
-//                        return;
-//                    }
-//
-//                    List<String> sseLines = new ArrayList<>();
-//                    BufferedReader reader = new BufferedReader(new InputStreamReader(response.body().byteStream(), StandardCharsets.UTF_8));
-//                    String line;
-//                    while ((line = reader.readLine()) != null) {
-//                        sseLines.add(line);
-//                    }
-//
-//                    StringBuilder contentBuilder = new StringBuilder();
-//                    int completionTokens = 0;
-//
-//                    for (String sseLine : sseLines) {
-//                        if (sseLine.startsWith("data: ")) {
-//                            String data = sseLine.substring(6).trim();
-//                            if (data.equals("[DONE]")) {
-//                                break;
-//                            }
-//                            try {
-//                                JSONObject sseJson = new JSONObject(data);
-//                                System.out.println(data);
-//                                if (sseJson.has("choices")) {
-//                                    JSONArray choices = sseJson.getJSONArray("choices");
-//                                    for (int i = 0; i < choices.length(); i++) {
-//                                        JSONObject choice = choices.getJSONObject(i);
-//                                        if (choice.has("delta")) {
-//                                            JSONObject delta = choice.getJSONObject("delta");
-//                                            if (delta.has("content")) {
-//                                                if(!delta.get("content").equals(JSONObject.NULL)){
-//                                                    String content = delta.getString("content");
-//                                                    contentBuilder.append(content);
-//                                                    completionTokens += countTokens(content);
-//                                                }
-//                                            }
-//                                        }
-//                                    }
-//                                }
-//                            } catch (JSONException e) {
-//                                System.err.println("JSON解析错误: " + e.getMessage());
-//                                e.printStackTrace();
-//                            }
-//                        }
-//                    }
-//
-//                    JSONObject openAIResponse = new JSONObject();
-//                    openAIResponse.put("id", "chatcmpl-" + UUID.randomUUID().toString().replace("-", ""));
-//                    openAIResponse.put("object", "chat.completion");
-//                    openAIResponse.put("created", Instant.now().getEpochSecond());
-//                    openAIResponse.put("model", model);
-//
-//                    JSONArray choicesArray = new JSONArray();
-//                    JSONObject choiceObject = new JSONObject();
-//                    choiceObject.put("index", 0);
-//
-//                    JSONObject messageObject = new JSONObject();
-//                    messageObject.put("role", "assistant");
-//                    messageObject.put("content", contentBuilder.toString());
-//                    messageObject.put("refusal", JSONObject.NULL);
-//
-//                    choiceObject.put("message", messageObject);
-//                    choiceObject.put("logprobs", JSONObject.NULL);
-//                    choiceObject.put("finish_reason", "stop");
-//                    choicesArray.put(choiceObject);
-//
-//                    openAIResponse.put("choices", choicesArray);
-//
-//                    JSONObject usageObject = new JSONObject();
-//                    int promptTokens = countTokens(contentBuilder.toString());
-//                    usageObject.put("prompt_tokens", promptTokens);
-//                    usageObject.put("completion_tokens", completionTokens);
-//                    usageObject.put("total_tokens", promptTokens + completionTokens);
-//
-//                    JSONObject promptTokensDetails = new JSONObject();
-//                    promptTokensDetails.put("cached_tokens", 0);
-//                    promptTokensDetails.put("audio_tokens", 0);
-//                    usageObject.put("prompt_tokens_details", promptTokensDetails);
-//
-//                    JSONObject completionTokensDetails = new JSONObject();
-//                    completionTokensDetails.put("reasoning_tokens", 0);
-//                    completionTokensDetails.put("audio_tokens", 0);
-//                    completionTokensDetails.put("accepted_prediction_tokens", 0);
-//                    completionTokensDetails.put("rejected_prediction_tokens", 0);
-//                    usageObject.put("completion_tokens_details", completionTokensDetails);
-//
-//                    openAIResponse.put("usage", usageObject);
-//                    openAIResponse.put("system_fingerprint", "fp_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12));
-//
-//                    exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
-//                    String responseBody = openAIResponse.toString();
-//                    exchange.sendResponseHeaders(200, responseBody.getBytes(StandardCharsets.UTF_8).length);
-//                    try (OutputStream os = exchange.getResponseBody()) {
-//                        os.write(responseBody.getBytes(StandardCharsets.UTF_8));
-//                    }
-//
-//                } catch (Exception e) {
-//                    e.printStackTrace();
-//                    sendError(exchange, "处理响应时发生错误: " + e.getMessage());
-//                }
-//            }
-//        });
-//    }
 
 
     /**
@@ -667,8 +513,7 @@ public class CompletionHandler implements HttpHandler {
             @Override
             public void onFailure(@NotNull Call call, @NotNull IOException e) {
                 e.printStackTrace();
-//                sendError(exchange, "请求失败: " + e.getMessage());
-                handleNormalResponse(exchange,request);
+                sendError(exchange, "请求失败: " + e.getMessage());
             }
 
             @Override
@@ -680,7 +525,6 @@ public class CompletionHandler implements HttpHandler {
                     // 检查响应是否使用gzip压缩
                     String contentEncoding = response.header("Content-Encoding");
                     if ("gzip".equalsIgnoreCase(contentEncoding)) {
-//                        System.out.println("gzip");
                         // 使用GZIPInputStream解压数据
                         try (GZIPInputStream gzipInputStream = new GZIPInputStream(response.body().byteStream());
                              BufferedReader reader = new BufferedReader(new InputStreamReader(gzipInputStream, StandardCharsets.UTF_8))) {
@@ -692,7 +536,6 @@ public class CompletionHandler implements HttpHandler {
                             responseBody = sb.toString();
                         }
                     } else {
-//                        System.out.println("无gzip");
                         // 如果没有压缩，直接读取
                         responseBody = response.body().string();
                     }
@@ -732,30 +575,5 @@ public class CompletionHandler implements HttpHandler {
         }
 
         return tokenCount;
-    }
-    /**
-     * 判断一个 URL 是否指向公网地址（非私有、非回环、非链路本地、非任意本地）
-     */
-    public static boolean isPublicURL(String urlString) {
-        try {
-            URL url = new URL(urlString);
-            String host = url.getHost();
-            InetAddress addr = InetAddress.getByName(host);
-
-            if (addr.isSiteLocalAddress()    // 10/8, 172.16/12, 192.168/16
-                    || addr.isLoopbackAddress()    // 127/8
-                    || addr.isLinkLocalAddress()   // 169.254/16
-                    || addr.isAnyLocalAddress()    // 0.0.0.0
-            ) {
-                return false;
-            }
-            return true;
-        } catch (MalformedURLException e) {
-            // URL 语法不合法，拒绝
-            return false;
-        } catch (UnknownHostException e) {
-            // 无法解析主机名，拒绝
-            return false;
-        }
     }
 }
