@@ -2,10 +2,8 @@ import com.sun.net.httpserver.Headers;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import okhttp3.*;
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
-
+import com.fasterxml.jackson.databind.*;
+import com.fasterxml.jackson.databind.node.*;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -14,17 +12,14 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.zip.GZIPInputStream;
+import java.util.Base64;
 
 import utils.BearerTokenGenerator;
 
 public class TextToImageHandler implements HttpHandler {
     private final OkHttpClient okHttpClient = utils.utils.getOkHttpClient();
-    private final Executor executor = Executors.newSingleThreadExecutor();
+    private final Executor executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
     private static final int CACHE_MAX_SIZE = 100;
-//    private static final String OPENAI_API_KEY = "";
     private static final String OPENAI_API_URI = "http://127.0.0.1:" + Main.port + "/v1/chat/completions";
     private static final String SYSTEMCONTENT = "Your role is that of a smart and creative assistant. Do not mention that you are a chatbot or AI assistant. Consider the terms when communicating: 1. The length of your response: Auto. 2. The tone style of your speech: Default. This dialog box has an option to generate images. The function should be called only when the user explicitly requests it - for example, using any related words associated with image generation requests. In other cases - the call of the image generation function should not be called.";
 
@@ -34,6 +29,8 @@ public class TextToImageHandler implements HttpHandler {
             return size() > CACHE_MAX_SIZE;
         }
     });
+
+    private static final ObjectMapper mapper = new ObjectMapper();
 
     @Override
     public void handle(HttpExchange exchange) throws IOException {
@@ -66,9 +63,8 @@ public class TextToImageHandler implements HttpHandler {
                         .lines()
                         .reduce("", (acc, line) -> acc + line);
 
-                System.out.println("Received Image Generations JSON: " + requestBody);
-
-                JSONObject userInput = new JSONObject(requestBody);
+                JsonNode userInput = mapper.readTree(requestBody);
+                System.out.println("Received Image Generations JSON: " + userInput.toString());
 
                 // 验证必需的字段
                 if (!userInput.has("prompt")) {
@@ -76,343 +72,438 @@ public class TextToImageHandler implements HttpHandler {
                     return;
                 }
 
-                String userPrompt = userInput.optString("prompt", "").trim();
-                String responseFormat = userInput.optString("response_format", "").trim();
-                int n = userInput.optInt("n", 1); // 读取 n 的值，默认为 1
+                String userPrompt = userInput.path("prompt").asText("").trim();
+                String responseFormat = userInput.path("response_format").asText("").trim();
+                int n = userInput.path("n").asInt(1); // 读取 n 的值，默认为 1
 
                 if (userPrompt.isEmpty()) {
                     utils.utils.sendError(exchange, "Prompt 不能为空。");
                     return;
                 }
-                //可选: 润色提示词
-//                synchronized (promptCache) {
-//                    if (promptCache.containsKey(userPrompt)) {
-//                        userPrompt = promptCache.get(userPrompt);
-//                        System.out.println("Cache hit for prompt: " + userPrompt);
-//                    } else {
-//                        // 使用 OpenAI API 润色用户的提示词
-//                            userPrompt = refinePrompt(userPrompt);
-//                        if (userPrompt == null || userPrompt.isEmpty()) {
-//                            utils.utils.sendError(exchange, "Failed to refine the prompt using OpenAI API.");
-//                            return;
-//                        }
-//                        // 将润色后的提示词存入缓存
-//                        promptCache.put(userPrompt, userPrompt);
-//                        System.out.println("Cache updated with prompt: " + userPrompt);
-//                    }
-//                }
-                System.out.println("Prompt: " + userPrompt);
-                System.out.println("Number of images to generate (n): " + n);
 
-                // 设置最大尝试次数为 2 * n
-                int maxAttempts = 2 * n;
-                System.out.println("Max Attempts: " + maxAttempts);
+                // 异步处理提示词润色和图像生成
+                processPromptAndGenerateImages(exchange, userPrompt, responseFormat, n);
 
-                // 初始化用于存储多个 URL 的线程安全列表
-                List<String> finalDownloadUrls = Collections.synchronizedList(new ArrayList<>());
-
-                // 开始尝试生成图像
-                boolean success = attemptGenerateImages(userPrompt, n, maxAttempts, finalDownloadUrls).join();
-
-                if (success) {
-                    // 根据 response_format 返回相应的响应
-                    boolean isBase64Response = "b64_json".equalsIgnoreCase(responseFormat);
-
-                    JSONObject responseJson = new JSONObject();
-                    responseJson.put("created", System.currentTimeMillis() / 1000); // 添加 created 字段
-                    JSONArray dataArray = new JSONArray();
-
-                    if (isBase64Response) {
-                        // 对每个下载链接进行处理
-                        for (String downloadUrl : finalDownloadUrls) {
-                            try {
-                                // 下载图像并编码为 Base64
-                                byte[] imageBytes = downloadImage(downloadUrl);
-                                if (imageBytes == null) {
-                                    // 如果下载失败，跳过此链接
-                                    System.err.println("无法从 URL 下载图像: " + downloadUrl);
-                                    continue;
-                                }
-
-                                // 转换为 Base64
-                                String imageBase64 = Base64.getEncoder().encodeToString(imageBytes);
-
-                                JSONObject dataObject = new JSONObject();
-                                dataObject.put("b64_json", imageBase64);
-                                dataArray.put(dataObject);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                                // 继续处理其他图像
-                            }
-                        }
-                    } else {
-                        // 直接返回所有图像的 URL
-                        for (String downloadUrl : finalDownloadUrls) {
-                            JSONObject dataObject = new JSONObject();
-                            dataObject.put("url", downloadUrl);
-                            dataArray.put(dataObject);
-                        }
-                    }
-
-                    // 如果收集的 URL 数量不足 n，则通过复制现有的 URL 来填充
-                    while (dataArray.length() < n && dataArray.length() > 0) {
-                        for (int i = 0; i < dataArray.length() && dataArray.length() < n; i++) {
-                            JSONObject original = dataArray.getJSONObject(i);
-                            dataArray.put(original);
-                        }
-                    }
-
-                    responseJson.put("data", dataArray);
-
-                    try {
-                        byte[] responseBytes = responseJson.toString().getBytes(StandardCharsets.UTF_8);
-                        exchange.getResponseHeaders().add("Content-Type", "application/json");
-                        exchange.sendResponseHeaders(200, responseBytes.length);
-                        try (OutputStream os = exchange.getResponseBody()) {
-                            os.write(responseBytes);
-                        }
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                        utils.utils.sendError(exchange, "发送响应时发生错误: " + e.getMessage());
-                    }
-
-                } else {
-                    // 如果在所有尝试后仍未收集到足够的链接，则返回错误
-                    utils.utils.sendError(exchange, "无法生成足够数量的图像。");
-                }
-
-            } catch (JSONException je) {
-                je.printStackTrace();
-                utils.utils.sendError(exchange, "JSON 解析错误: " + je.getMessage());
             } catch (Exception e) {
                 e.printStackTrace();
-                utils.utils.sendError(exchange, "内部服务器错误: " + e.getMessage());
+                utils.utils.sendError(exchange, "JSON 解析错误: " + e.getMessage());
             }
         }, executor);
     }
 
     /**
-     * 尝试生成图像，带有重试机制。
-     *
-     * @param userPrompt        用户的提示
-     * @param n                 需要生成的图像数量
-     * @param maxAttempts       最大尝试次数
-     * @param finalDownloadUrls 收集的最终下载链接列表
-     * @return CompletableFuture<Boolean> 表示是否成功收集到足够的下载链接
+     * 异步处理提示词润色和图像生成
      */
-    private CompletableFuture<Boolean> attemptGenerateImages(String userPrompt, int n,
-                                                             int maxAttempts, List<String> finalDownloadUrls) {
-        return CompletableFuture.supplyAsync(() -> {
-            for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-                int needed = n - finalDownloadUrls.size();
-                if (needed <= 0) {
-                    break;
-                }
+    private void processPromptAndGenerateImages(HttpExchange exchange, String userPrompt, String responseFormat, int n) {
+        // 异步润色提示词
+        CompletableFuture<String> refinedPromptFuture = getRefinedPrompt(userPrompt);
 
-                System.out.println("Attempt " + attempt + " - 需要生成的图像数量: " + needed);
+        refinedPromptFuture
+                .thenCompose(refinedPrompt -> {
+                    if (refinedPrompt == null || refinedPrompt.isEmpty()) {
+                        utils.utils.sendError(exchange, "Failed to refine the prompt using OpenAI API.");
+                        return CompletableFuture.completedFuture(null);
+                    }
 
-                List<CompletableFuture<String>> futures = new ArrayList<>();
+                    System.out.println("Prompt: " + refinedPrompt);
+                    System.out.println("Number of images to generate (n): " + n);
 
-                for (int i = 0; i < needed; i++) {
-                    int finalAttempt = attempt;
-                    CompletableFuture<String> future = CompletableFuture.supplyAsync(() -> {
-                        try {
-                            // 构建新的 TextToImage JSON 请求体
-                            JSONObject textToImageJson = new JSONObject();
-                            textToImageJson.put("function_image_gen", true);
-                            textToImageJson.put("function_web_search", true);
-                            textToImageJson.put("image_aspect_ratio", "1:1");
-                            textToImageJson.put("image_style", "anime"); // 固定 image_style
-                            textToImageJson.put("max_tokens", 8000);
-                            textToImageJson.put("web_search_engine", "auto");
-                            JSONArray messages = new JSONArray();
-                            JSONObject message = new JSONObject();
-                            message.put("content", SYSTEMCONTENT);
-                            message.put("role", "system");
-                            JSONObject userMessage = new JSONObject();
-                            userMessage.put("content", "Draw: " + userPrompt);
-                            userMessage.put("role", "user");
-                            messages.put(message);
-                            messages.put(userMessage);
-                            textToImageJson.put("messages", messages);
-                            textToImageJson.put("model", "claude-3-5-sonnet"); // 固定 model
-                            textToImageJson.put("source", "chat/pro_image"); // 固定 source
+                    // 设置最大尝试次数为 2 * n
+                    int maxAttempts = 2 * n;
+                    System.out.println("Max Attempts: " + maxAttempts);
 
-                            String modifiedRequestBody = textToImageJson.toString();
-                            byte[] requestBodyBytes = modifiedRequestBody.getBytes(StandardCharsets.UTF_8);
+                    // 初始化用于存储多个 URL 的线程安全列表
+                    List<String> finalDownloadUrls = Collections.synchronizedList(new ArrayList<>());
 
-                            System.out.println("Attempt " + finalAttempt + " - 构建的请求: " + modifiedRequestBody);
-
-                            // 使用OkHttp构建请求
-                            Request request = utils.utils.buildRequest(requestBodyBytes,"/chats/stream", BearerTokenGenerator.UA);
-
-                            // 发送请求并处理响应
-                            Call call = okHttpClient.newCall(request);
-                            try (Response response = call.execute()) {
-                                if (!response.isSuccessful()) {
-                                    System.err.println("Attempt " + finalAttempt + " - API 错误: " + response.code());
-                                    return null;
+                    // 开始尝试生成图像
+                    return attemptGenerateImages(refinedPrompt, n, maxAttempts, finalDownloadUrls)
+                            .thenApply(success -> {
+                                if (success) {
+                                    return finalDownloadUrls;
                                 }
+                                return null;
+                            });
+                })
+                .thenAccept(finalDownloadUrls -> {
+                    if (finalDownloadUrls == null) {
+                        utils.utils.sendError(exchange, "无法生成足够数量的图像。");
+                        return;
+                    }
 
-                                ResponseBody responseBody = response.body();
-                                if (responseBody == null) {
-                                    System.err.println("Attempt " + finalAttempt + " - 响应体为空");
-                                    return null;
-                                }
+                    try {
+                        // 根据 response_format 返回相应的响应
+                        boolean isBase64Response = "b64_json".equalsIgnoreCase(responseFormat);
 
-                                // 初始化用于拼接 URL 的 StringBuilder
-                                StringBuilder urlBuilder = new StringBuilder();
+                        ObjectNode responseJson = mapper.createObjectNode();
+                        responseJson.put("created", System.currentTimeMillis() / 1000); // 添加 created 字段
+                        ArrayNode dataArray = mapper.createArrayNode();
 
-                                // 读取 SSE 流并拼接 URL
-                                BufferedReader reader = new BufferedReader(new InputStreamReader(responseBody.byteStream(), StandardCharsets.UTF_8));
-                                String line;
-                                while ((line = reader.readLine()) != null) {
-                                    System.out.println(line);
-                                    if (line.startsWith("data: ")) {
-                                        String data = line.substring(6).trim();
-                                        if (data.equals("[DONE]")) {
-                                            break; // 完成读取
+                        if (isBase64Response) {
+                            // 对每个下载链接进行处理
+                            List<CompletableFuture<ObjectNode>> downloadFutures = new ArrayList<>();
+
+                            for (String downloadUrl : finalDownloadUrls) {
+                                CompletableFuture<ObjectNode> downloadFuture = CompletableFuture.supplyAsync(() -> {
+                                    try {
+                                        // 下载图像并编码为 Base64
+                                        byte[] imageBytes = downloadImage(downloadUrl);
+                                        if (imageBytes == null) {
+                                            // 如果下载失败，返回null
+                                            System.err.println("无法从 URL 下载图像: " + downloadUrl);
+                                            return null;
                                         }
 
-                                        try {
-                                            JSONObject sseJson = new JSONObject(data);
-                                            if (sseJson.has("choices")) {
-                                                JSONArray choices = sseJson.getJSONArray("choices");
-                                                for (int j = 0; j < choices.length(); j++) {
-                                                    JSONObject choice = choices.getJSONObject(j);
-                                                    JSONObject delta = choice.optJSONObject("delta");
-                                                    if (delta != null && delta.has("content")) {
-                                                        String content = delta.getString("content");
-                                                        urlBuilder.append(content);
-                                                    }
-                                                }
-                                            }
-                                        } catch (JSONException e) {
-                                            System.err.println("Attempt " + finalAttempt + " - JSON解析错误: " + e.getMessage());
-                                        }
+                                        // 转换为 Base64
+                                        String imageBase64 = Base64.getEncoder().encodeToString(imageBytes);
+
+                                        ObjectNode dataObject = mapper.createObjectNode();
+                                        dataObject.put("b64_json", imageBase64);
+                                        return dataObject;
+                                    } catch (Exception e) {
+                                        e.printStackTrace();
+                                        return null;
                                     }
-                                }
+                                }, executor);
 
-                                String imageMarkdown = urlBuilder.toString();
-                                // Step 1: 检查Markdown文本是否为空
-                                if (imageMarkdown.isEmpty()) {
-                                    System.out.println("Attempt " + finalAttempt + " - 无法从 SSE 流中构建图像 Markdown。");
-                                    return null;
-                                }
-
-                                // Step 2: 从Markdown中提取图像路径
-                                String extractedPath = utils.utils.extractPathFromMarkdown(imageMarkdown);
-
-                                // Step 3: 如果没有提取到路径，输出错误信息
-                                if (extractedPath == null || extractedPath.isEmpty()) {
-                                    System.out.println("Attempt " + finalAttempt + " - 无法从 Markdown 中提取路径。");
-                                    return null;
-                                }
-
-                                // Step 4: 过滤掉 "https://spc.unk/" 前缀
-                                extractedPath = extractedPath.replace("https://spc.unk/", "");
-
-
-                                // 输出提取到的路径
-                                System.out.println("Attempt " + finalAttempt + " - 提取的路径: " + extractedPath);
-
-                                // Step 5: 拼接最终的存储URL
-                                String storageUrl = "https://api.chaton.ai/storage/" + extractedPath;
-                                System.out.println("Attempt " + finalAttempt + " - 存储URL: " + storageUrl);
-
-                                // 请求 storageUrl 获取 JSON 数据
-                                String finalDownloadUrl = utils.utils.fetchGetUrlFromStorage(storageUrl);
-                                if (finalDownloadUrl == null || finalDownloadUrl.isEmpty()) {
-                                    System.out.println("Attempt " + finalAttempt + " - 无法从 storage URL 获取最终下载链接。");
-                                    return null;
-                                }
-
-                                System.out.println("Final Download URL: " + finalDownloadUrl);
-
-                                return finalDownloadUrl;
+                                downloadFutures.add(downloadFuture);
                             }
 
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                            System.err.println("Attempt " + finalAttempt + " - 处理响应时发生错误: " + e.getMessage());
-                            return null;
-                        }
-                    }, executor);
+                            // 等待所有下载完成，并收集结果
+                            CompletableFuture<Void> allDownloads = CompletableFuture.allOf(
+                                    downloadFutures.toArray(new CompletableFuture[0])
+                            );
 
-                    futures.add(future);
-                }
+                            allDownloads.thenRun(() -> {
+                                try {
+                                    // 收集所有成功的下载结果
+                                    for (CompletableFuture<ObjectNode> future : downloadFutures) {
+                                        ObjectNode result = future.join();
+                                        if (result != null) {
+                                            dataArray.add(result);
+                                        }
+                                    }
 
-                // 等待所有任务完成
-                CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+                                    // 如果收集的 URL 数量不足 n，则通过复制现有的 URL 来填充
+                                    fillDataArrayIfNeeded(dataArray, n);
 
-                // 收集成功的下载链接
-                for (CompletableFuture<String> future : futures) {
-                    try {
-                        String url = future.get();
-                        if (url != null && !url.isEmpty()) {
-                            finalDownloadUrls.add(url);
+                                    responseJson.set("data", dataArray);
+                                    sendSuccessResponse(exchange, responseJson);
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                    utils.utils.sendError(exchange, "处理下载的图像时发生错误: " + e.getMessage());
+                                }
+                            });
+                        } else {
+                            // 直接返回所有图像的 URL
+                            for (String downloadUrl : finalDownloadUrls) {
+                                ObjectNode dataObject = mapper.createObjectNode();
+                                dataObject.put("url", downloadUrl);
+                                dataArray.add(dataObject);
+                            }
+
+                            // 如果收集的 URL 数量不足 n，则通过复制现有的 URL 来填充
+                            fillDataArrayIfNeeded(dataArray, n);
+
+                            responseJson.set("data", dataArray);
+                            sendSuccessResponse(exchange, responseJson);
                         }
                     } catch (Exception e) {
                         e.printStackTrace();
-                        System.err.println("Attempt " + attempt + " - 获取下载链接时发生错误: " + e.getMessage());
+                        utils.utils.sendError(exchange, "生成响应时发生错误: " + e.getMessage());
                     }
-                }
+                })
+                .exceptionally(e -> {
+                    e.printStackTrace();
+                    utils.utils.sendError(exchange, "处理请求时发生错误: " + e.getMessage());
+                    return null;
+                });
+    }
 
-                // 检查是否已经收集到足够的下载链接
-                if (finalDownloadUrls.size() >= n) {
-                    return true;
+    /**
+     * 填充数据数组，如果不足所需数量则复制现有项
+     */
+    private void fillDataArrayIfNeeded(ArrayNode dataArray, int targetSize) {
+        // 如果收集的数量不足 n，则通过复制现有的来填充
+        while (dataArray.size() < targetSize && dataArray.size() > 0) {
+            for (int i = 0; i < dataArray.size() && dataArray.size() < targetSize; i++) {
+                JsonNode original = dataArray.get(i);
+                dataArray.add(original.deepCopy());
+            }
+        }
+    }
+
+    /**
+     * 发送成功响应
+     */
+    private void sendSuccessResponse(HttpExchange exchange, JsonNode responseJson) {
+        try {
+            byte[] responseBytes = mapper.writeValueAsBytes(responseJson);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, responseBytes.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(responseBytes);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            utils.utils.sendError(exchange, "发送响应时发生错误: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 获取润色后的提示词，优先从缓存中获取
+     */
+    private CompletableFuture<String> getRefinedPrompt(String userPrompt) {
+        return CompletableFuture.supplyAsync(() -> {
+            synchronized (promptCache) {
+                if (promptCache.containsKey(userPrompt)) {
+                    String cachedPrompt = promptCache.get(userPrompt);
+                    System.out.println("Cache hit for prompt: " + cachedPrompt);
+                    return cachedPrompt;
                 }
             }
-
-            // 在所有尝试后，检查是否收集到足够的链接
-            if (finalDownloadUrls.size() >= n) {
-                return true;
+            return null;
+        }, executor).thenCompose(cachedPrompt -> {
+            if (cachedPrompt != null) {
+                return CompletableFuture.completedFuture(cachedPrompt);
             } else {
-                System.out.println("已达到最大尝试次数，仍未收集到足够数量的下载链接。");
-                return false;
+                // 缓存未命中，使用 OpenAI API 润色提示词
+                return CompletableFuture.supplyAsync(() -> {
+                    String refinedPrompt = refinePrompt(userPrompt);
+                    if (refinedPrompt != null && !refinedPrompt.isEmpty()) {
+                        // 将润色后的提示词存入缓存
+                        synchronized (promptCache) {
+                            promptCache.put(userPrompt, refinedPrompt);
+                        }
+                        System.out.println("Cache updated with prompt: " + refinedPrompt);
+                    }
+                    return refinedPrompt;
+                }, executor);
             }
+        });
+    }
 
+    /**
+     * 尝试生成图像，带有重试机制。
+     */
+    private CompletableFuture<Boolean> attemptGenerateImages(String userPrompt, int n,
+                                                             int maxAttempts, List<String> finalDownloadUrls) {
+        // 使用递归方式实现异步重试
+        return attemptGenerateImagesRecursive(userPrompt, n, maxAttempts, 1, finalDownloadUrls);
+    }
+
+    /**
+     * 递归实现的异步图像生成重试机制
+     */
+    private CompletableFuture<Boolean> attemptGenerateImagesRecursive(String userPrompt, int n,
+                                                                      int maxAttempts, int currentAttempt,
+                                                                      List<String> finalDownloadUrls) {
+        // 基本情况：已收集足够的URLs或已达到最大尝试次数
+        if (finalDownloadUrls.size() >= n) {
+            return CompletableFuture.completedFuture(true);
+        }
+
+        if (currentAttempt > maxAttempts) {
+            System.out.println("已达到最大尝试次数，仍未收集到足够数量的下载链接。");
+            return CompletableFuture.completedFuture(finalDownloadUrls.size() >= n);
+        }
+
+        int needed = n - finalDownloadUrls.size();
+        System.out.println("Attempt " + currentAttempt + " - 需要生成的图像数量: " + needed);
+
+        // 创建当前批次的所有图像生成任务
+        List<CompletableFuture<String>> futures = new ArrayList<>();
+        for (int i = 0; i < needed; i++) {
+            futures.add(generateSingleImage(userPrompt, currentAttempt));
+        }
+
+        // 转换为组合的CompletableFuture
+        CompletableFuture<List<String>> allFutures = CompletableFuture.allOf(
+                        futures.toArray(new CompletableFuture[0]))
+                .thenApply(v -> {
+                    List<String> urls = new ArrayList<>();
+                    for (CompletableFuture<String> future : futures) {
+                        try {
+                            String url = future.join();
+                            if (url != null && !url.isEmpty()) {
+                                urls.add(url);
+                            }
+                        } catch (Exception e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    return urls;
+                });
+
+        // 收集成功生成的URL，然后递归尝试下一批
+        return allFutures.thenCompose(urls -> {
+            // 添加成功的URL到最终列表
+            finalDownloadUrls.addAll(urls);
+
+            // 递归调用下一次尝试
+            return attemptGenerateImagesRecursive(userPrompt, n, maxAttempts, currentAttempt + 1, finalDownloadUrls);
+        });
+    }
+
+    /**
+     * 生成单张图像并返回下载URL
+     */
+    private CompletableFuture<String> generateSingleImage(String userPrompt, int attempt) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                // 构建新的 TextToImage JSON 请求体
+                ObjectNode textToImageJson = mapper.createObjectNode();
+                textToImageJson.put("function_image_gen", true);
+                textToImageJson.put("function_web_search", true);
+                textToImageJson.put("image_aspect_ratio", "1:1");
+                textToImageJson.put("image_style", "anime"); // 固定 image_style
+                textToImageJson.put("max_tokens", 8000);
+                textToImageJson.put("web_search_engine", "auto");
+                ArrayNode messages = mapper.createArrayNode();
+                ObjectNode message = mapper.createObjectNode();
+                message.put("content", SYSTEMCONTENT);
+                message.put("role", "system");
+                ObjectNode userMessage = mapper.createObjectNode();
+                userMessage.put("content", "Draw: " + userPrompt);
+                userMessage.put("role", "user");
+                messages.add(message);
+                messages.add(userMessage);
+                textToImageJson.set("messages", messages);
+                textToImageJson.put("model", "claude-3-5-sonnet"); // 固定 model
+                textToImageJson.put("source", "chat/pro_image"); // 固定 source
+
+                String modifiedRequestBody = mapper.writeValueAsString(textToImageJson);
+                byte[] requestBodyBytes = modifiedRequestBody.getBytes(StandardCharsets.UTF_8);
+
+                System.out.println("Attempt " + attempt + " - 构建的请求: " + modifiedRequestBody);
+
+                // 使用OkHttp构建请求
+                Request request = utils.utils.buildRequest(requestBodyBytes, "/chats/stream");
+
+                // 发送请求并处理响应
+                Call call = okHttpClient.newCall(request);
+                try (Response response = call.execute()) {
+                    if (!response.isSuccessful()) {
+                        System.err.println("Attempt " + attempt + " - API 错误: " + response.code());
+                        return null;
+                    }
+
+                    ResponseBody responseBody = response.body();
+                    if (responseBody == null) {
+                        System.err.println("Attempt " + attempt + " - 响应体为空");
+                        return null;
+                    }
+
+                    // 初始化用于拼接 URL 的 StringBuilder
+                    StringBuilder urlBuilder = new StringBuilder();
+
+                    // 读取 SSE 流并拼接 URL
+                    BufferedReader reader = new BufferedReader(new InputStreamReader(responseBody.byteStream(), StandardCharsets.UTF_8));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.startsWith("data: ")) {
+                            String data = line.substring(6).trim();
+                            if (data.equals("[DONE]")) {
+                                break; // 完成读取
+                            }
+
+                            try {
+                                JsonNode sseJson = mapper.readTree(data);
+                                if (sseJson.has("choices")) {
+                                    ArrayNode choices = (ArrayNode) sseJson.get("choices");
+                                    for (JsonNode choice : choices) {
+                                        JsonNode delta = choice.path("delta");
+                                        if (delta != null && delta.has("content")) {
+                                            String content = delta.get("content").asText();
+                                            urlBuilder.append(content);
+                                        }
+                                    }
+                                }
+                            } catch (Exception e) {
+                                System.err.println("Attempt " + attempt + " - JSON解析错误: " + e.getMessage());
+                            }
+                        }
+                    }
+
+                    String imageMarkdown = urlBuilder.toString();
+                    // Step 1: 检查Markdown文本是否为空
+                    if (imageMarkdown.isEmpty()) {
+                        System.out.println("Attempt " + attempt + " - 无法从 SSE 流中构建图像 Markdown。");
+                        return null;
+                    }
+
+                    // Step 2: 从Markdown中提取图像路径
+                    String extractedPath = utils.utils.extractPathFromMarkdown(imageMarkdown);
+
+                    // Step 3: 如果没有提取到路径，输出错误信息
+                    if (extractedPath == null || extractedPath.isEmpty()) {
+                        System.out.println("Attempt " + attempt + " - 无法从 Markdown 中提取路径。");
+                        return null;
+                    }
+
+                    // Step 4: 过滤掉 "https://spc.unk/" 前缀
+                    extractedPath = extractedPath.replace("https://spc.unk/", "");
+
+                    // 输出提取到的路径
+                    System.out.println("Attempt " + attempt + " - 提取的路径: " + extractedPath);
+
+                    // Step 5: 拼接最终的存储URL
+                    String storageUrl = "https://api.chaton.ai/storage/" + extractedPath;
+                    System.out.println("Attempt " + attempt + " - 存储URL: " + storageUrl);
+
+                    // 请求 storageUrl 获取 JSON 数据
+                    String finalDownloadUrl = utils.utils.fetchGetUrlFromStorage(storageUrl);
+                    if (finalDownloadUrl == null || finalDownloadUrl.isEmpty()) {
+                        System.out.println("Attempt " + attempt + " - 无法从 storage URL 获取最终下载链接。");
+                        return null;
+                    }
+
+                    System.out.println("Final Download URL: " + finalDownloadUrl);
+
+                    return finalDownloadUrl;
+                }
+
+            } catch (Exception e) {
+                e.printStackTrace();
+                System.err.println("Attempt " + attempt + " - 处理响应时发生错误: " + e.getMessage());
+                return null;
+            }
         }, executor);
     }
 
     /**
      * 使用 OpenAI 的 chat/completions API 润色用户的提示词
-     *
-     * @param prompt 用户的原始提示词
-     * @return 润色后的提示词
      */
     private String refinePrompt(String prompt) {
         try {
             // 构建请求体
-            JSONObject requestBody = new JSONObject();
+            ObjectNode requestBody = mapper.createObjectNode();
             requestBody.put("model", "claude-3-5-sonnet");
             requestBody.put("stream", false);
 
             // 设置系统和用户消息
-            JSONArray messages = new JSONArray();
+            ArrayNode messages = mapper.createArrayNode();
 
             // 适当的系统内容，引导模型润色提示词
-            JSONObject systemMessage = new JSONObject();
+            ObjectNode systemMessage = mapper.createObjectNode();
             systemMessage.put("role", "system");
             systemMessage.put("content", "You are an assistant that refines and improves user-provided prompts for image generation. Ensure the prompt is clear, descriptive, and optimized for generating high-quality images. Only tell me in English in few long sentences.");
-            messages.put(systemMessage);
+            messages.add(systemMessage);
 
             // 用户的原始提示词
-            JSONObject userMessage = new JSONObject();
+            ObjectNode userMessage = mapper.createObjectNode();
             userMessage.put("role", "user");
             userMessage.put("content", prompt);
-            messages.put(userMessage);
+            messages.add(userMessage);
 
-            requestBody.put("messages", messages);
+            requestBody.set("messages", messages);
 
             // 发送请求体
             MediaType mediaType = MediaType.parse("application/json; charset=utf-8");
-            RequestBody body = RequestBody.create(requestBody.toString(), mediaType);
+            RequestBody body = RequestBody.create(mapper.writeValueAsString(requestBody), mediaType);
 
             Request request = new Request.Builder()
                     .url(OPENAI_API_URI)
                     .post(body)
-//                    .header("Authorization", "Bearer " + OPENAI_API_KEY)
                     .header("Content-Type", "application/json")
                     .build();
 
@@ -426,19 +517,19 @@ public class TextToImageHandler implements HttpHandler {
                 }
 
                 String responseString = response.body().string();
-                JSONObject responseJson = new JSONObject(responseString);
-                JSONArray choices = responseJson.getJSONArray("choices");
+                JsonNode responseJson = mapper.readTree(responseString);
+                JsonNode choices = responseJson.get("choices");
 
-                if (choices.length() > 0) {
-                    JSONObject firstChoice = choices.getJSONObject(0);
-                    String refinedPrompt = firstChoice.getJSONObject("message").getString("content").trim();
+                if (choices != null && choices.isArray() && choices.size() > 0) {
+                    JsonNode firstChoice = choices.get(0);
+                    String refinedPrompt = firstChoice.path("message").path("content").asText().trim();
                     return refinedPrompt;
                 } else {
                     System.err.println("OpenAI API 返回的 choices 数组为空。");
                     return null;
                 }
             }
-        } catch (IOException | JSONException e) {
+        } catch (IOException e) {
             System.err.println("调用 OpenAI API 失败: " + e.getMessage());
             return null;
         }
@@ -446,9 +537,6 @@ public class TextToImageHandler implements HttpHandler {
 
     /**
      * 下载图像
-     *
-     * @param imageUrl 图像的最终下载 URL
-     * @return 图像的字节数组，失败时返回 null
      */
     private byte[] downloadImage(String imageUrl) {
         try {
