@@ -33,7 +33,7 @@ import java.util.concurrent.TimeUnit;
 
 public class TextToImageHandler implements HttpHandler {
     // 非阻塞计算/调度线程池
-    private static final ExecutorService computeExecutor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private static final ExecutorService computeExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     // 阻塞 I/O 线程池（有界队列 + CallerRunsPolicy 做反压）
     private static final ThreadPoolExecutor blockingExecutor = new ThreadPoolExecutor(
