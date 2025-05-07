@@ -64,7 +64,7 @@ jobs:
     - name: Setup GraalVM
       uses: graalvm/setup-graalvm@v1
       with:
-        java-version: '17'
+        java-version: '21'
         distribution: 'graalvm'
         github-token: ${{ secrets.GITHUB_TOKEN }}
         native-image-job-reports: 'true'
@@ -112,10 +112,8 @@ jobs:
         -H:Name=${{ matrix.artifact_name }} ^
         --enable-https ^
         --enable-http ^
-        --static ^
         --no-fallback ^
-        --initialize-at-build-time ^
-        --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient,utils.BearerTokenGenerator
+        --initialize-at-run-time
     - name: Build Native Image (Linux/MacOS)
       if: matrix.os != 'windows-latest'
       shell: bash
@@ -133,10 +131,8 @@ jobs:
           --enable-https \
           --enable-http \
           ${{ matrix.gc_flag }} \
-          ${{ matrix.static == true && '--static' || '' }} \
           --no-fallback \
-          --initialize-at-build-time \
-          --initialize-at-run-time=sun.security.ssl.SSLContextImpl,okhttp3.OkHttpClient,utils.BearerTokenGenerator
+          --initialize-at-run-time
     - name: Upload Native Build (Windows)
       if: matrix.os == 'windows-latest'
       uses: actions/upload-artifact@v4
@@ -165,8 +161,7 @@ jobs:
     - name: Setup Maven
       uses: actions/setup-java@v3
       with:
-        java-version: '17'
-        distribution: 'temurin'
+        java-version: '21'
     
     - name: Generate release info
       id: release_info
