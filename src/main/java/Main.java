@@ -11,7 +11,7 @@ import com.sun.net.httpserver.*;
 
 public class Main {
     public static int port = 80;
-    private static final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private static final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
 
     public static HttpServer createHttpServer(int initialPort) throws IOException {
 
