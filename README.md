@@ -33,6 +33,10 @@ gpt-4o✅
 
 gpt-4o-mini✅
 
+o3-mini✅
+
+o4-mini✅
+
 claude-3-5-sonnet✅
 
 claude-3-7-sonnet✅
