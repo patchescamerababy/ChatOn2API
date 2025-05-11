@@ -43,7 +43,7 @@ claude-3-7-sonnet✅
 
 claude✅(claude 3 haiku)
 
-deekseek-r1✅
+deepseek-r1✅
 
 sonar-reasoning-pro✅
 
