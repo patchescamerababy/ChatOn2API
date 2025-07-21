@@ -1,0 +1,231 @@
+name: Linux & Windows Static Build and Release
+
+on:
+  push:
+    paths:
+      - 'src/**'
+      - 'Makefile'
+      - '.github/workflows/cpp-linux-win-static-build.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'Makefile'
+      - '.github/workflows/cpp-linux-win-static-build.yml'
+
+jobs:
+  # 1. Linux x86_64 静态构建 (musl free、glibc 全静态)
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            g++ make perl wget tar xz-utils \
+            pkg-config autoconf automake libtool
+
+      - name: Build static dependencies
+        run: |
+          set -e
+          mkdir -p deps && cd deps
+
+          # zstd
+          wget -q https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz
+          tar -zxf zstd-1.5.5.tar.gz
+          cd zstd-1.5.5; make -j$(nproc); sudo make install; cd ..
+
+          # zlib
+          wget -q https://zlib.net/fossils/zlib-1.3.1.tar.gz
+          tar -zxf zlib-1.3.1.tar.gz
+          cd zlib-1.3.1
+          ./configure --static --prefix=/usr/local
+          make -j$(nproc); sudo make install
+          cd ..
+
+          # OpenSSL
+          wget -q https://www.openssl.org/source/openssl-1.1.1w.tar.gz
+          tar -zxf openssl-1.1.1w.tar.gz
+          cd openssl-1.1.1w
+          ./Configure linux-x86_64 no-shared --prefix=/usr/local
+          make -j$(nproc); sudo make install_sw
+          cd ..
+
+          # SQLite3
+          wget -q https://www.sqlite.org/2024/sqlite-autoconf-3450200.tar.gz
+          tar -zxf sqlite-autoconf-3450200.tar.gz
+          cd sqlite-autoconf-3450200
+          ./configure --disable-shared --enable-static --prefix=/usr/local
+          make -j$(nproc); sudo make install
+          cd ..
+
+          # nghttp2
+          wget -q https://github.com/nghttp2/nghttp2/releases/download/v1.59.0/nghttp2-1.59.0.tar.xz
+          tar -xf nghttp2-1.59.0.tar.xz
+          cd nghttp2-1.59.0
+          autoreconf -i
+          ./configure --disable-shared --enable-static --prefix=/usr/local
+          make -j$(nproc); sudo make install
+          cd ..
+
+          # curl
+          wget -q https://curl.se/download/curl-8.7.1.tar.xz
+          tar -xf curl-8.7.1.tar.xz
+          cd curl-8.7.1
+          ./configure --disable-shared --enable-static \
+                      --with-ssl --with-zlib --with-nghttp2 \
+                      --with-zstd --prefix=/usr/local LDFLAGS="-static"
+          make -j$(nproc); sudo make install
+          cd ../..
+
+      - name: Header‑only libraries
+        run: |
+          sudo mkdir -p /usr/local/include/nlohmann
+          git clone --depth=1 https://github.com/yhirose/cpp-httplib.git
+          sudo cp cpp-httplib/httplib.h /usr/local/include/
+          git clone --depth=1 https://github.com/nlohmann/json.git
+          sudo cp json/single_include/nlohmann/json.hpp /usr/local/include/nlohmann/
+
+      - name: Build ChatOn (Linux static)
+        run: |
+          make clean
+          make -j$(nproc) all_static
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatOn-linux-static
+          path: build/bin/ChatOn_static
+
+  # 2. Windows x86_64 交叉编译、完全静态
+  build-windows:
+    runs-on: ubuntu-latest
+    env:
+      PREFIX: /usr/x86_64-w64-mingw32/static
+      CC: x86_64-w64-mingw32-gcc
+      CXX: x86_64-w64-mingw32-g++
+      AR: x86_64-w64-mingw32-ar
+      RANLIB: x86_64-w64-mingw32-ranlib
+      STRIP: x86_64-w64-mingw32-strip
+      WINDRES: x86_64-w64-mingw32-windres
+      PKG_CONFIG_LIBDIR: /usr/x86_64-w64-mingw32/static/lib/pkgconfig
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MinGW‑w64 toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            mingw-w64 g++ make pkg-config autoconf automake libtool \
+            perl wget tar xz-utils mingw-w64-tools binutils-mingw-w64-x86-64
+
+      - name: Build static dependencies (Windows)
+        run: |
+          set -e
+          mkdir -p deps && cd deps
+
+          # zstd
+          wget -q https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz
+          tar -zxf zstd-1.5.5.tar.gz
+          cd zstd-1.5.5
+          make -j$(nproc) CC=$CC CXX=$CXX
+          sudo make PREFIX=$PREFIX install
+          cd ..
+
+          # zlib
+          wget -q https://zlib.net/fossils/zlib-1.3.1.tar.gz
+          tar -zxf zlib-1.3.1.tar.gz
+          cd zlib-1.3.1
+          CC=$CC ./configure --static --prefix=$PREFIX
+          make -j$(nproc); sudo make install
+          cd ..
+
+          # OpenSSL
+          wget -q https://www.openssl.org/source/openssl-1.1.1w.tar.gz
+          tar -zxf openssl-1.1.1w.tar.gz
+          cd openssl-1.1.1w
+          CC=$CC ./Configure mingw64 no-shared --prefix=$PREFIX
+          make -j$(nproc); sudo make install_sw
+          cd ..
+
+          # SQLite3
+          wget -q https://www.sqlite.org/2024/sqlite-autoconf-3450200.tar.gz
+          tar -zxf sqlite-autoconf-3450200.tar.gz
+          cd sqlite-autoconf-3450200
+          CC=$CC CXX=$CXX ./configure \
+            --host=x86_64-w64-mingw32 --disable-shared --enable-static \
+            --prefix=$PREFIX
+          make -j$(nproc); sudo make install
+          cd ..
+
+          # nghttp2
+          wget -q https://github.com/nghttp2/nghttp2/releases/download/v1.59.0/nghttp2-1.59.0.tar.xz
+          tar -xf nghttp2-1.59.0.tar.xz
+          cd nghttp2-1.59.0
+          autoreconf -i
+          CC=$CC CXX=$CXX ./configure \
+            --host=x86_64-w64-mingw32 --disable-shared --enable-static \
+            --prefix=$PREFIX
+          make -j$(nproc); sudo make install
+          cd ..
+
+          # curl  ── 关键：OPENSSL_STATIC + pkg-config --static
+          wget -q https://curl.se/download/curl-8.7.1.tar.xz
+          tar -xf curl-8.7.1.tar.xz
+          cd curl-8.7.1
+          export PKG_CONFIG="pkg-config --static"
+          CPPFLAGS="-DOPENSSL_STATIC -DNGHTTP2_STATICLIB -I$PREFIX/include" \
+          LDFLAGS="-static -L$PREFIX/lib" \
+          CC=$CC CXX=$CXX \
+          ./configure --host=x86_64-w64-mingw32 \
+                      --disable-shared --enable-static \
+                      --with-ssl=$PREFIX \
+                      --with-zlib=$PREFIX \
+                      --with-nghttp2=$PREFIX \
+                      --with-zstd=$PREFIX \
+                      --disable-ldap --disable-ldaps \
+                      --prefix=$PREFIX
+          make -j$(nproc); sudo make install
+          cd ..
+
+      - name: Header‑only libs
+        run: |
+          sudo mkdir -p $PREFIX/include/nlohmann
+          git clone --depth=1 https://github.com/yhirose/cpp-httplib.git
+          sudo cp cpp-httplib/httplib.h $PREFIX/include/
+          git clone --depth=1 https://github.com/nlohmann/json.git
+          sudo cp json/single_include/nlohmann/json.hpp $PREFIX/include/nlohmann/
+
+      - name: Build ChatOn (Windows static)
+        run: |
+          make clean
+          make -j$(nproc) all_static_win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChatOn-windows-static
+          path: build/bin/ChatOn_static.exe
+
+  # 3. GitHub Release (打包两平台产物)
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: ChatOn-linux-static,  path: dist/ }
+      - uses: actions/download-artifact@v4
+        with: { name: ChatOn-windows-static, path: dist/ }
+      - run: ls -Rl dist
+      - id: date
+        run: echo "DATE=$(date +'%Y.%m.%d')" >> $GITHUB_ENV
+      - uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ env.DATE }}
+          name: Release v${{ env.DATE }}
+          files: |
+            dist/ChatOn_static
+            dist/ChatOn_static.exe
+          draft: false
+          prerelease: false
+          token: ${{ secrets.GITHUB_TOKEN }}
