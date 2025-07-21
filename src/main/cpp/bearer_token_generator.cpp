@@ -9,11 +9,23 @@
 #include <iostream>
 
 // 初始化静态成员变量
-const std::string BearerTokenGenerator::UA = "ChatOn_Android/1.66.536";
+const std::string BearerTokenGenerator::UA = "ChatOn_iOS/1.62.873.0";
 // 密钥初始化
-const std::vector<unsigned char> BearerTokenGenerator::keyA = { 'W', 'L', 'G', 'D', 'K', 'D', 'd', '3', '3', 'd', 'a', 'B', 'P', 'l', 'w', 'r' };
-const std::vector<unsigned char> BearerTokenGenerator::keyB = { 's', 'E', 'v', 'P', '7', '5', 'K', 'G', 'U', 'U', 'l', 'C', 'n', 'R', '6', 'i', '5', 'h', 'b', 'a', 's', 'h', 'r', 'Z', 'r', '5', 'l', 'o', 'w', 'z', 'T', 'B' };
+const std::vector<unsigned char> BearerTokenGenerator::keyA = { 
+    0xFF, 0x56, 0x83, 0xB3,
+    0x5D, 0x76, 0xBC, 0xC5,
+    0xF2, 0x65, 0xB4, 0x89,
+    0xED, 0xF6, 0x94, 0xAE
+};
 
+const std::vector<unsigned char> BearerTokenGenerator::keyB = { 
+    0x66, 0xF8, 0x00, 0x87, 0x1B, 0x58, 0xB1, 0x53,
+    0xA1, 0xE7, 0x2E, 0x0A, 0x40, 0xFE,
+    0xB9, 0xDE, 0x55, 0x93, 0x85,
+    0x1E, 0x28, 0x98, 0xD9, 0xFD,
+    0xAB, 0xF2, 0xEB, 0x2D,
+    0xFD, 0x08, 0xFB, 0x6D
+};
 
 
 std::string BearerTokenGenerator::GetBearer(const std::vector<unsigned char>& bodyContent,
